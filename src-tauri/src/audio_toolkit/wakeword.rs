@@ -9,6 +9,7 @@
 use anyhow::{Context, Result};
 use livekit_wakeword::WakeWordModel;
 use log::{debug, info, warn};
+use std::error::Error;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -49,13 +50,16 @@ impl WakeWordDetector {
         // Construct the model with the given classifier file.
         // The vendored crate's `WakeWordModel::new` takes a slice of paths
         // and a sample rate. The model is loaded from disk here.
-        let mut model = WakeWordModel::new(&[model_path], sample_rate)
-            .with_context(|| {
-                format!(
-                    "Failed to load wake word model at {}",
-                    model_path.display()
-                )
-            })?;
+        let mut model = WakeWordModel::new(&[model_path], sample_rate).map_err(|e| {
+            let mut chain = format!("WakeWordModel::new failed: {e}");
+            let mut src: &dyn std::error::Error = &e;
+            while let Some(cause) = src.source() {
+                chain.push_str(&format!(" -> {cause}"));
+                src = cause;
+            }
+            warn!("{chain}");
+            anyhow::anyhow!("{chain}")
+        })?;
 
         // Use the file stem as the classifier name for friendlier logging.
         let stem = model_path

@@ -5,7 +5,6 @@ use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
 use log::{debug, error, info, warn};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -215,19 +214,11 @@ impl AudioRecordingManager {
         // setting without restarting the app. We log+continue on failure
         // so a missing model doesn't break mic recording.
         //
-        // NOTE: Currently disabled by default because `ort-tract` (used by
-        // livekit-wakeword) installs a global static ORT backend at init
-        // time, which can conflict with the native ORT backend already
-        // initialised by `vad-rs` / `transcribe-rs`. Enabling this without
-        // resolving that conflict causes a STATUS_STACK_BUFFER_OVERRUN at
-        // process exit. Set HANDY_ENABLE_WAKEWORD=1 once that conflict is
-        // resolved upstream.
-        if std::env::var("HANDY_ENABLE_WAKEWORD").is_ok() {
-            if let Err(e) = manager.preload_wakeword() {
-                warn!("Wake-word model unavailable: {e}");
-            }
-        } else {
-            debug!("Wake-word detection disabled (set HANDY_ENABLE_WAKEWORD=1 to enable)");
+        // The wake-word crate now uses the same default ONNX Runtime
+        // backend as the rest of the project (no `alternative-backend`),
+        // so this is safe to run eagerly.
+        if let Err(e) = manager.preload_wakeword() {
+            warn!("Wake-word model unavailable: {e}");
         }
 
         // Always-on?  Open immediately.

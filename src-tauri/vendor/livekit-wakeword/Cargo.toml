@@ -6,14 +6,14 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
+# Use the same default-features setup as the rest of the project so we share
+# the same ONNX Runtime backend (no alternative-backend / ort-tract). This
+# avoids the "ort::set_api must be called first" crash when both Handy's VAD
+# and the wake-word model are loaded into the same process.
 ndarray = "0.17.2"
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray", "std"] }
 resampler = "0.4"
 thiserror = "2"
-
-[target.'cfg(not(all(target_arch = "aarch64", target_os = "windows", target_env = "msvc")))'.dependencies]
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["alternative-backend"] }
-ort-tract = "0.3.0+0.22"
 
 [dev-dependencies]
 hound = "3.5"
