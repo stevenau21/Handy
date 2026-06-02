@@ -142,10 +142,13 @@ fn create_audio_recorder(
 
     // If a wake-word detector is configured, install a chunk callback that
     // feeds every audio frame to it. The detector returns a confidence
-    // score; we emit a Tauri event when it crosses the threshold.
+    // score; when it crosses the threshold we start recording via the
+    // AudioRecordingManager (with a cooldown to avoid spam).
     if let Some(ww) = wakeword {
         let app_handle = app_handle.clone();
-        recorder_builder = recorder_builder.with_audio_chunk_callback(move |samples, sample_rate| {
+        let last_trigger: Arc<Mutex<std::time::Instant>> =
+            Arc::new(Mutex::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
+        recorder_builder = recorder_builder.with_audio_chunk_callback(move |samples, _sample_rate| {
             // Convert f32 in [-1, 1] to i16 PCM for the wake-word model.
             // (The vendored crate expects i16 PCM at the configured rate.)
             let i16_samples: Vec<i16> = samples
@@ -154,11 +157,48 @@ fn create_audio_recorder(
                 .collect();
             if let Some(score) = ww.feed_samples(&i16_samples).ok().flatten() {
                 if score >= crate::audio_toolkit::DEFAULT_WAKEWORD_THRESHOLD {
-                    info!("Wake word detected (score={:.3})", score);
+                    // Cooldown: only trigger once every 5 seconds
+                    let now = std::time::Instant::now();
+                    {
+                        let last = last_trigger.lock().unwrap();
+                        if now.duration_since(*last) < std::time::Duration::from_secs(5) {
+                            return;
+                        }
+                    }
+                    *last_trigger.lock().unwrap() = now;
+
+                    info!("Wake word detected (score={:.3}) — starting transcription", score);
                     let _ = app_handle.emit(
                         "wake-word-detected",
                         serde_json::json!({ "score": score }),
                     );
+
+                    // Trigger recording via the AudioRecordingManager
+                    if let Some(manager) = app_handle.try_state::<Arc<AudioRecordingManager>>() {
+                        // Explicitly create owned Arc clones that are 'static
+                        // (severing the borrow from the Fn closure's captured app_handle)
+                        let mgr: Arc<AudioRecordingManager> = Arc::clone(&*manager);
+                        if let Err(e) = mgr.try_start_recording("wakeword") {
+                            debug!("Wake-word could not start recording: {e}");
+                        } else {
+                            info!("Wake-word triggered recording — will auto-stop in 5s");
+                            let mgr_for_thread: Arc<AudioRecordingManager> = Arc::clone(&mgr);
+                            let ah_for_thread: tauri::AppHandle = app_handle.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+                                info!("Wake-word auto-stop: stopping recording after 5s");
+                                let samples = mgr_for_thread.stop_recording("wakeword");
+                                if let Some(audio) = samples {
+                                    if !audio.is_empty() {
+                                        info!("Wake-word recording captured {} samples, sending for transcription", audio.len());
+                                        let _ = ah_for_thread.emit("transcribe-audio", serde_json::json!({ "samples": audio }));
+                                    } else {
+                                        debug!("Wake-word recording was empty");
+                                    }
+                                }
+                            });
+                        }
+                    }
                 }
             }
         });
@@ -222,7 +262,9 @@ impl AudioRecordingManager {
         }
 
         // Always-on?  Open immediately.
-        if matches!(mode, MicrophoneMode::AlwaysOn) {
+        // Also open if wake-word detector is loaded — it needs audio to listen.
+        let has_wakeword = manager.wakeword.lock().unwrap().is_some();
+        if matches!(mode, MicrophoneMode::AlwaysOn) || has_wakeword {
             manager.start_microphone_stream()?;
         }
 
