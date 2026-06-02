@@ -49,7 +49,7 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.commands",
     icon: Mic,
     component: VoiceCommandsSettings,
-    enabled: (settings) => settings?.always_on_microphone ?? false,
+    enabled: () => true,
   },
   advanced: {
     labelKey: "sidebar.advanced",
