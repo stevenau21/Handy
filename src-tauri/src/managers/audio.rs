@@ -240,16 +240,14 @@ impl AudioRecordingManager {
             wakeword: Arc::new(Mutex::new(None)),
         };
 
-        // Try to load the wake-word model up front so the user can flip the
-        // setting without restarting the app. We log+continue on failure
-        // so a missing model doesn't break mic recording.
+        // Wake-word detector is DISABLED by default. The bundled
+        // hey_livekit.onnx is a dummy classifier (ReduceMean over
+        // embeddings) that fires on ALL audio — not a real wake-word
+        // model. Re-enable once a properly trained classifier is available.
         //
-        // The wake-word crate now uses the same default ONNX Runtime
-        // backend as the rest of the project (no `alternative-backend`),
-        // so this is safe to run eagerly.
-        if let Err(e) = manager.preload_wakeword() {
-            warn!("Wake-word model unavailable: {e}");
-        }
+        // if let Err(e) = manager.preload_wakeword() {
+        //     warn!("Wake-word model unavailable: {e}");
+        // }
 
         // Always-on?  Open immediately.
         // Also open if wake-word detector is loaded — it needs audio to listen.
