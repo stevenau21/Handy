@@ -1,10 +1,6 @@
-use crate::settings::{get_settings, AppSettings, VoiceCommand};
-use log::{debug, error, info, warn};
-use serde::{Deserialize, Serialize};
-use specta::Type;
-use std::collections::HashMap;
+use crate::settings::VoiceCommand;
+use log::{debug, error, info};
 use tauri::AppHandle;
-use tauri_plugin_opener::OpenerExt;
 
 /// Check if transcribed text is a voice command.
 /// Returns the matched command if the text (after stripping wake phrase)
@@ -53,9 +49,27 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String
                 url.to_string()
             };
             info!("Executing voice command: open_url({})", url);
-            tauri_plugin_opener::Opener::from(app)
-                .open_url(&url, None::<&str>)
-                .map_err(|e| format!("Failed to open URL: {}", e))?;
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/c", "start", "", &url])
+                    .spawn()
+                    .map_err(|e| format!("Failed to open URL: {}", e))?;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = std::process::Command::new("open")
+                    .arg(&url)
+                    .spawn()
+                    .map_err(|e| format!("Failed to open URL: {}", e))?;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&url)
+                    .spawn()
+                    .map_err(|e| format!("Failed to open URL: {}", e))?;
+            }
             Ok(())
         }
         "open_app" => {

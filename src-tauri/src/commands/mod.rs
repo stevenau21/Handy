@@ -215,8 +215,9 @@ pub fn add_voice_command(
 ) -> Result<VoiceCommand, String> {
     let mut settings = get_settings(&app);
     settings.voice_commands.push(command);
+    let clone = settings.voice_commands.last().unwrap().clone();
     write_settings(&app, settings);
-    Ok(settings.voice_commands.last().unwrap().clone())
+    Ok(clone)
 }
 
 #[specta::specta]
