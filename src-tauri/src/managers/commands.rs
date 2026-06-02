@@ -102,10 +102,12 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String
         "type_text" => {
             let text = cmd.action_payload.clone();
             info!("Executing voice command: type_text({})", text);
-            let ah = app.clone();
-            let _ = ah.run_on_main_thread(move || {
-                if let Err(e) = crate::utils::paste(text, ah.clone()) {
-                    error!("Failed to type text for command: {}", e);
+            let _ = app.run_on_main_thread({
+                let app = app.clone();
+                move || {
+                    if let Err(e) = crate::utils::paste(text, app) {
+                        error!("Failed to type text for command: {}", e);
+                    }
                 }
             }).map_err(|e| format!("Failed to run on main thread: {}", e))?;
             Ok(())
