@@ -179,11 +179,10 @@ fn create_audio_recorder(
                         &app_handle, "transcribe", "wakeword",
                     );
 
-                    // Auto-stop after 5 seconds: call send_transcription_input
-                    // again to STOP recording → transcribe → paste
+                    // Auto-stop after 10 seconds to give time to finish speaking
                     let ah_for_thread: tauri::AppHandle = app_handle.clone();
                     std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        std::thread::sleep(std::time::Duration::from_secs(10));
                         info!("Wake-word auto-stop: stopping and transcribing");
                         crate::signal_handle::send_transcription_input(
                             &ah_for_thread, "transcribe", "wakeword-stop",
@@ -240,14 +239,10 @@ impl AudioRecordingManager {
             wakeword: Arc::new(Mutex::new(None)),
         };
 
-        // Wake-word detector is DISABLED by default. The bundled
-        // hey_livekit.onnx is a dummy classifier (ReduceMean over
-        // embeddings) that fires on ALL audio — not a real wake-word
-        // model. Re-enable once a properly trained classifier is available.
-        //
-        // if let Err(e) = manager.preload_wakeword() {
-        //     warn!("Wake-word model unavailable: {e}");
-        // }
+        // Wake-word detector is now enabled with a custom trained model.
+        if let Err(e) = manager.preload_wakeword() {
+            warn!("Wake-word model unavailable: {e}");
+        }
 
         // Always-on?  Open immediately.
         // Also open if wake-word detector is loaded — it needs audio to listen.
@@ -350,7 +345,7 @@ impl AudioRecordingManager {
             .app_handle
             .path()
             .resolve(
-                "resources/models/hey_livekit.onnx",
+                "resources/models/hey_jarvis.onnx",
                 tauri::path::BaseDirectory::Resource,
             )
             .map_err(|e| anyhow::anyhow!("Failed to resolve wake-word model path: {}", e))?;

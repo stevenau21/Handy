@@ -96,12 +96,16 @@ def record_samples(label: str, count: int, duration: float = 2.0):
     else:
         print(">>> Say random words, stay silent, or make background noise")
 
-    print(">>> Press ENTER to start each recording, or Ctrl+C to stop early")
+    print(">>> Auto-countdown: 3s between samples, Ctrl+C to stop early")
     print()
 
     for i in range(count):
-        input(f"  [{i+1}/{count}] Press ENTER to record...")
-        print(f"  Recording {duration}s...", end=" ", flush=True)
+        # Countdown
+        print(f"  [{i+1}/{count}] Get ready...", flush=True)
+        for s in range(3, 0, -1):
+            print(f"    {s}...", flush=True)
+            time.sleep(1)
+        print(f"  RECORDING {duration}s -- SPEAK NOW!", flush=True)
 
         audio = sd.rec(
             int(duration * SAMPLE_RATE),
@@ -169,8 +173,10 @@ class FeatureExtractor:
         mel_input_name = self.mel_session.get_inputs()[0].name
         mel_input = audio_f32.reshape(1, -1).astype(np.float32)
         mel_result = self.mel_session.run(None, {mel_input_name: mel_input})
-        mel = mel_result[0]  # shape: (num_frames, MEL_BINS)
-
+        mel = mel_result[0]  # shape: (1, 1, num_frames, MEL_BINS)
+        
+        # Squeeze to remove batch and channel dimensions: (1, 1, frames, 32) -> (frames, 32)
+        mel = np.squeeze(mel)
         num_frames = mel.shape[0]
         if num_frames < EMBEDDING_WINDOW:
             return None
@@ -181,10 +187,10 @@ class FeatureExtractor:
         while start + EMBEDDING_WINDOW <= num_frames:
             window = mel[start:start + EMBEDDING_WINDOW, :]  # (76, 32)
             emb_input_name = self.emb_session.get_inputs()[0].name
-            emb_input = window.reshape(1, -1).astype(np.float32)  # (1, 76*32)
+            emb_input = window.reshape(1, EMBEDDING_WINDOW, MEL_BINS, 1).astype(np.float32)  # (1, 76, 32, 1)
             emb_result = self.emb_session.run(None, {emb_input_name: emb_input})
-            emb = emb_result[0]  # (1, 96)
-            embeddings.append(emb[0])  # (96,)
+            emb = np.squeeze(emb_result[0])  # squeeze to (96,)
+            embeddings.append(emb)
             start += EMBEDDING_STRIDE
 
         if len(embeddings) < MIN_EMBEDDINGS:
@@ -234,9 +240,9 @@ def collect_dataset(extractor: FeatureExtractor):
         emb = extractor.extract_from_file(str(f))
         if emb is not None:
             positive_data.append(emb)
-            print(f"  ✓ {f.name} → {emb.shape}")
+            print(f"  [OK] {f.name} -> {emb.shape}")
         else:
-            print(f"  ✗ {f.name} → too short, skipped")
+            print(f"  [SKIP] {f.name} -> too short, skipped")
 
     # Negative samples
     neg_files = sorted(list(neg_dir.glob("*.wav")) + list(neg_dir.glob("*.npy")))
@@ -245,9 +251,9 @@ def collect_dataset(extractor: FeatureExtractor):
         emb = extractor.extract_from_file(str(f))
         if emb is not None:
             negative_data.append(emb)
-            print(f"  ✓ {f.name} → {emb.shape}")
+            print(f"  [OK] {f.name} -> {emb.shape}")
         else:
-            print(f"  ✗ {f.name} → too short, skipped")
+            print(f"  [SKIP] {f.name} -> too short, skipped")
 
     print(f"\nDataset: {len(positive_data)} positive, {len(negative_data)} negative")
 
@@ -310,7 +316,7 @@ def train_classifier(positive_data, negative_data, wake_phrase: str,
     print(f"\nTraining classifier for '{wake_phrase}'...")
     print(f"  Samples: {len(X)} ({len(positive_data)} positive, {len(negative_data)} negative)")
     print(f"  Epochs: {epochs}, Learning rate: {lr}")
-    print(f"  Model: Flatten(1536) → Dense(128) → ReLU → Dropout(0.3) → Dense(32) → ReLU → Dropout(0.2) → Dense(1) → Sigmoid")
+    print(f"  Model: Flatten(1536) -> Dense(128) -> ReLU -> Dropout(0.3) -> Dense(32) -> ReLU -> Dropout(0.2) -> Dense(1) -> Sigmoid")
     print()
 
     model.train()
@@ -374,8 +380,18 @@ def export_onnx(model, wake_phrase: str):
         opset_version=17,
     )
 
+    # Inline external data to avoid Rust ONNX Runtime path resolution issues
+    import onnx
+    onnx_model = onnx.load(str(output_path))
+    onnx.save(onnx_model, str(output_path), save_as_external_data=False)
+    
+    # Clean up the .data file if PyTorch created one
+    data_file = output_path.with_suffix('.onnx.data')
+    if data_file.exists():
+        data_file.unlink()
+
     file_size = output_path.stat().st_size
-    print(f"\n✅ Model exported: {output_path}")
+    print(f"\n✅ Model exported (self-contained): {output_path}")
     print(f"   File size: {file_size / 1024:.1f} KB")
     print(f"   Input: 'embeddings' (1, {MIN_EMBEDDINGS}, {EMBEDDING_DIM})")
     print(f"   Output: 'score' (1,)")

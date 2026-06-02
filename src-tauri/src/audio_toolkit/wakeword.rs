@@ -14,8 +14,8 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Default confidence threshold above which we consider a wake word detected.
-/// 0.5 is a balanced default (tuneable via settings).
-pub const DEFAULT_THRESHOLD: f32 = 0.5;
+/// 0.6 is stricter to prevent false positives from clicks and background noise.
+pub const DEFAULT_THRESHOLD: f32 = 0.6;
 
 /// Number of samples required for a valid wake-word prediction (~2 seconds at
 /// 16 kHz, or the equivalent after internal resampling for other rates).
