@@ -214,8 +214,20 @@ impl AudioRecordingManager {
         // Try to load the wake-word model up front so the user can flip the
         // setting without restarting the app. We log+continue on failure
         // so a missing model doesn't break mic recording.
-        if let Err(e) = manager.preload_wakeword() {
-            warn!("Wake-word model unavailable: {e}");
+        //
+        // NOTE: Currently disabled by default because `ort-tract` (used by
+        // livekit-wakeword) installs a global static ORT backend at init
+        // time, which can conflict with the native ORT backend already
+        // initialised by `vad-rs` / `transcribe-rs`. Enabling this without
+        // resolving that conflict causes a STATUS_STACK_BUFFER_OVERRUN at
+        // process exit. Set HANDY_ENABLE_WAKEWORD=1 once that conflict is
+        // resolved upstream.
+        if std::env::var("HANDY_ENABLE_WAKEWORD").is_ok() {
+            if let Err(e) = manager.preload_wakeword() {
+                warn!("Wake-word model unavailable: {e}");
+            }
+        } else {
+            debug!("Wake-word detection disabled (set HANDY_ENABLE_WAKEWORD=1 to enable)");
         }
 
         // Always-on?  Open immediately.
