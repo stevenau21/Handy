@@ -3,7 +3,7 @@ pub mod history;
 pub mod models;
 pub mod transcription;
 
-use crate::settings::{get_settings, write_settings, AppSettings, LogLevel};
+use crate::settings::{get_settings, write_settings, AppSettings, LogLevel, VoiceCommand};
 use crate::utils::cancel_current_operation;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -183,5 +183,67 @@ pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
     app.manage(ShortcutsInitialized);
 
     log::info!("Shortcuts initialized successfully");
+    Ok(())
+}
+
+// -- Voice Commands CRUD ----------------------------------------------
+
+#[specta::specta]
+#[tauri::command]
+pub fn get_voice_commands(app: AppHandle) -> Result<Vec<VoiceCommand>, String> {
+    let settings = get_settings(&app);
+    Ok(settings.voice_commands)
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn set_voice_commands(
+    app: AppHandle,
+    commands: Vec<VoiceCommand>,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.voice_commands = commands;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn add_voice_command(
+    app: AppHandle,
+    command: VoiceCommand,
+) -> Result<VoiceCommand, String> {
+    let mut settings = get_settings(&app);
+    settings.voice_commands.push(command);
+    write_settings(&app, settings);
+    Ok(settings.voice_commands.last().unwrap().clone())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn update_voice_command(
+    app: AppHandle,
+    command: VoiceCommand,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    if let Some(cmd) = settings.voice_commands.iter_mut().find(|c| c.id == command.id) {
+        *cmd = command;
+        write_settings(&app, settings);
+        Ok(())
+    } else {
+        Err("Voice command not found".to_string())
+    }
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn delete_voice_command(app: AppHandle, id: String) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let before = settings.voice_commands.len();
+    settings.voice_commands.retain(|c| c.id != id);
+    if settings.voice_commands.len() == before {
+        return Err("Voice command not found".to_string());
+    }
+    write_settings(&app, settings);
     Ok(())
 }

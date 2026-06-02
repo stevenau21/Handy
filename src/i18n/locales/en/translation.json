@@ -11,6 +11,7 @@
   "sidebar": {
     "general": "General",
     "models": "Models",
+    "commands": "Commands",
     "advanced": "Advanced",
     "postProcessing": "Post Process",
     "history": "History",
@@ -608,5 +609,18 @@
   "overlay": {
     "transcribing": "Transcribing...",
     "processing": "Processing..."
+  },
+  "commands": {
+    "title": "Voice Commands",
+    "description": "Phrases spoken after your wake word that trigger actions instead of pasting text.",
+    "phrasePlaceholder": "e.g. \"open youtube\"",
+    "payloadPlaceholder": "Text to type…",
+    "add": "Add Command",
+    "remove": "Remove",
+    "action": {
+      "openUrl": "Open URL",
+      "openApp": "Open App",
+      "typeText": "Type Text"
+    }
   }
 }

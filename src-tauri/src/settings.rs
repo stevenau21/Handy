@@ -305,6 +305,27 @@ impl Default for OrtAcceleratorSetting {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug, Type, PartialEq, Eq)]
+pub struct VoiceCommand {
+    pub id: String,
+    pub phrase: String,
+    pub action_type: String,
+    pub action_payload: String,
+    pub enabled: bool,
+}
+
+impl Default for VoiceCommand {
+    fn default() -> Self {
+        Self {
+            id: "cmd_1".to_string(),
+            phrase: "open youtube".to_string(),
+            action_type: "open_url".to_string(),
+            action_payload: "youtube.com".to_string(),
+            enabled: true,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Type)]
 #[serde(transparent)]
 pub(crate) struct SecretMap(HashMap<String, String>);
@@ -387,6 +408,8 @@ pub struct AppSettings {
     pub auto_submit: bool,
     #[serde(default)]
     pub auto_submit_key: AutoSubmitKey,
+    #[serde(default = "default_wake_phrase")]
+    pub wake_phrase: String,
     #[serde(default = "default_post_process_enabled")]
     pub post_process_enabled: bool,
     #[serde(default = "default_post_process_provider_id")]
@@ -430,10 +453,20 @@ pub struct AppSettings {
     pub whisper_gpu_device: i32,
     #[serde(default)]
     pub extra_recording_buffer_ms: u64,
+    #[serde(default = "default_voice_commands")]
+    pub voice_commands: Vec<VoiceCommand>,
+}
+
+fn default_voice_commands() -> Vec<VoiceCommand> {
+    vec![VoiceCommand::default()]
 }
 
 fn default_model() -> String {
     "".to_string()
+}
+
+fn default_wake_phrase() -> String {
+    "hey jarvis".to_string()
 }
 
 fn default_always_on_microphone() -> bool {
@@ -792,6 +825,7 @@ pub fn get_default_settings() -> AppSettings {
         clipboard_handling: ClipboardHandling::default(),
         auto_submit: default_auto_submit(),
         auto_submit_key: AutoSubmitKey::default(),
+        wake_phrase: default_wake_phrase(),
         post_process_enabled: default_post_process_enabled(),
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
@@ -814,6 +848,7 @@ pub fn get_default_settings() -> AppSettings {
         ort_accelerator: OrtAcceleratorSetting::default(),
         whisper_gpu_device: default_whisper_gpu_device(),
         extra_recording_buffer_ms: 0,
+        voice_commands: default_voice_commands(),
     }
 }
 

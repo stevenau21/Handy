@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, History, Info, Sparkles, Cpu } from "lucide-react";
+import { Cog, FlaskConical, History, Info, Sparkles, Cpu, Mic } from "lucide-react";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
 import { useSettings } from "../hooks/useSettings";
@@ -12,6 +12,7 @@ import {
   AboutSettings,
   PostProcessingSettings,
   ModelsSettings,
+  VoiceCommandsSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -43,6 +44,12 @@ export const SECTIONS_CONFIG = {
     icon: Cpu,
     component: ModelsSettings,
     enabled: () => true,
+  },
+  commands: {
+    labelKey: "sidebar.commands",
+    icon: Mic,
+    component: VoiceCommandsSettings,
+    enabled: (settings) => settings?.always_on_microphone ?? false,
   },
   advanced: {
     labelKey: "sidebar.advanced",
