@@ -14,3 +14,7 @@ node_modules/
 
 # Log files from debugging builds
 cmake_build*.log
+
+# Wake-word training data (audio recordings and trained models)
+scripts/wakeword_data/
+scripts/wakeword_output/
