@@ -1,12 +1,15 @@
-use crate::audio_toolkit::{list_input_devices, vad::SmoothedVad, AudioRecorder, SileroVad};
+use crate::audio_toolkit::{
+    list_input_devices, vad::SmoothedVad, AudioRecorder, SileroVad, WakeWordDetector,
+};
 use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -119,6 +122,7 @@ pub enum MicrophoneMode {
 
 fn create_audio_recorder(
     vad_path: &str,
+    wakeword: Option<Arc<WakeWordDetector>>,
     app_handle: &tauri::AppHandle,
 ) -> Result<AudioRecorder, anyhow::Error> {
     let silero = SileroVad::new(vad_path, 0.3)
@@ -127,7 +131,7 @@ fn create_audio_recorder(
 
     // Recorder with VAD plus a spectrum-level callback that forwards updates to
     // the frontend.
-    let recorder = AudioRecorder::new()
+    let mut recorder_builder = AudioRecorder::new()
         .map_err(|e| anyhow::anyhow!("Failed to create AudioRecorder: {}", e))?
         .with_vad(Box::new(smoothed_vad))
         .with_level_callback({
@@ -137,7 +141,31 @@ fn create_audio_recorder(
             }
         });
 
-    Ok(recorder)
+    // If a wake-word detector is configured, install a chunk callback that
+    // feeds every audio frame to it. The detector returns a confidence
+    // score; we emit a Tauri event when it crosses the threshold.
+    if let Some(ww) = wakeword {
+        let app_handle = app_handle.clone();
+        recorder_builder = recorder_builder.with_audio_chunk_callback(move |samples, sample_rate| {
+            // Convert f32 in [-1, 1] to i16 PCM for the wake-word model.
+            // (The vendored crate expects i16 PCM at the configured rate.)
+            let i16_samples: Vec<i16> = samples
+                .iter()
+                .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+                .collect();
+            if let Some(score) = ww.feed_samples(&i16_samples).ok().flatten() {
+                if score >= crate::audio_toolkit::DEFAULT_WAKEWORD_THRESHOLD {
+                    info!("Wake word detected (score={:.3})", score);
+                    let _ = app_handle.emit(
+                        "wake-word-detected",
+                        serde_json::json!({ "score": score }),
+                    );
+                }
+            }
+        });
+    }
+
+    Ok(recorder_builder)
 }
 
 /* ──────────────────────────────────────────────────────────────── */
@@ -153,6 +181,10 @@ pub struct AudioRecordingManager {
     is_recording: Arc<Mutex<bool>>,
     did_mute: Arc<Mutex<bool>>,
     close_generation: Arc<AtomicU64>,
+    /// Wake-word detector (None if voice activation is disabled or model
+    /// could not be loaded). When present, all audio chunks are fed to it
+    /// regardless of whether the user is recording.
+    wakeword: Arc<Mutex<Option<Arc<WakeWordDetector>>>>,
 }
 
 impl AudioRecordingManager {
@@ -176,7 +208,15 @@ impl AudioRecordingManager {
             is_recording: Arc::new(Mutex::new(false)),
             did_mute: Arc::new(Mutex::new(false)),
             close_generation: Arc::new(AtomicU64::new(0)),
+            wakeword: Arc::new(Mutex::new(None)),
         };
+
+        // Try to load the wake-word model up front so the user can flip the
+        // setting without restarting the app. We log+continue on failure
+        // so a missing model doesn't break mic recording.
+        if let Err(e) = manager.preload_wakeword() {
+            warn!("Wake-word model unavailable: {e}");
+        }
 
         // Always-on?  Open immediately.
         if matches!(mode, MicrophoneMode::AlwaysOn) {
@@ -263,6 +303,41 @@ impl AudioRecordingManager {
         }
     }
 
+    /// Load the wake-word ONNX model and store the detector in `self.wakeword`.
+    /// Idempotent — repeated calls are no-ops once the model is loaded.
+    /// Loaded eagerly in `new()` so the user can enable the setting without
+    /// restarting the app.
+    pub fn preload_wakeword(&self) -> Result<(), anyhow::Error> {
+        let mut guard = self.wakeword.lock().unwrap();
+        if guard.is_some() {
+            return Ok(());
+        }
+
+        let model_path = self
+            .app_handle
+            .path()
+            .resolve(
+                "resources/models/hey_livekit.onnx",
+                tauri::path::BaseDirectory::Resource,
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to resolve wake-word model path: {}", e))?;
+
+        if !model_path.exists() {
+            anyhow::bail!(
+                "Wake-word model not found at {}",
+                model_path.display()
+            );
+        }
+
+        // The vendored crate resamples internally; pass the rate the model
+        // was trained on (16 kHz) so no extra conversion happens.
+        let detector = WakeWordDetector::new(&model_path, 16_000)
+            .map_err(|e| anyhow::anyhow!("Failed to create WakeWordDetector: {e}"))?;
+        info!("Wake-word detector ready: {:?}", detector.classifier_names());
+        *guard = Some(Arc::new(detector));
+        Ok(())
+    }
+
     pub fn preload_vad(&self) -> Result<(), anyhow::Error> {
         let mut recorder_opt = self.recorder.lock().unwrap();
         if recorder_opt.is_none() {
@@ -274,8 +349,12 @@ impl AudioRecordingManager {
                     tauri::path::BaseDirectory::Resource,
                 )
                 .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {}", e))?;
+            // Clone the wake-word detector (if loaded) so the recorder can
+            // forward audio chunks to it.
+            let ww = self.wakeword.lock().unwrap().clone();
             *recorder_opt = Some(create_audio_recorder(
                 vad_path.to_str().unwrap(),
+                ww,
                 &self.app_handle,
             )?);
         }

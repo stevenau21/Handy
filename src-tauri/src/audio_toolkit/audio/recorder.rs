@@ -30,12 +30,20 @@ enum AudioChunk {
     EndOfStream,
 }
 
+/// Callback invoked for every audio chunk the device produces (in f32, mono,
+/// at the device's native sample rate). The recorder guarantees that chunks
+/// are delivered in order, regardless of start/stop cycles.
+pub type AudioChunkCallback = Arc<dyn Fn(&[f32], u32) + Send + Sync + 'static>;
+
 pub struct AudioRecorder {
     device: Option<Device>,
     cmd_tx: Option<mpsc::Sender<Cmd>>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     vad: Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+    /// Optional sink for raw audio chunks. Receives `(samples, sample_rate)`.
+    /// Used by the wake-word detector.
+    chunk_cb: Option<AudioChunkCallback>,
 }
 
 impl AudioRecorder {
@@ -46,6 +54,7 @@ impl AudioRecorder {
             worker_handle: None,
             vad: None,
             level_cb: None,
+            chunk_cb: None,
         })
     }
 
@@ -59,6 +68,18 @@ impl AudioRecorder {
         F: Fn(Vec<f32>) + Send + Sync + 'static,
     {
         self.level_cb = Some(Arc::new(cb));
+        self
+    }
+
+    /// Register a callback that receives every audio chunk the recorder
+    /// produces. Used by the wake-word detector so it can listen on the
+    /// always-on mic stream without disturbing the existing VAD/level
+    /// pipeline.
+    pub fn with_audio_chunk_callback<F>(mut self, cb: F) -> Self
+    where
+        F: Fn(&[f32], u32) + Send + Sync + 'static,
+    {
+        self.chunk_cb = Some(Arc::new(cb));
         self
     }
 
@@ -83,6 +104,9 @@ impl AudioRecorder {
         let vad = self.vad.clone();
         // Move the optional level callback into the worker thread
         let level_cb = self.level_cb.clone();
+        // Move the optional audio-chunk callback (used by the wake-word
+        // detector) into the worker thread as well.
+        let chunk_cb = self.chunk_cb.clone();
 
         let worker = std::thread::spawn(move || {
             let stop_flag = Arc::new(AtomicBool::new(false));
@@ -159,7 +183,15 @@ impl AudioRecorder {
                 Ok((stream, sample_rate)) => {
                     let _ = init_tx.send(Ok(()));
                     // Keep the stream alive while we process samples.
-                    run_consumer(sample_rate, vad, sample_rx, cmd_rx, level_cb, stop_flag);
+                    run_consumer(
+                        sample_rate,
+                        vad,
+                        sample_rx,
+                        cmd_rx,
+                        level_cb,
+                        chunk_cb,
+                        stop_flag,
+                    );
                     drop(stream);
                 }
                 Err(error_message) => {
@@ -398,6 +430,7 @@ fn run_consumer(
     sample_rx: mpsc::Receiver<AudioChunk>,
     cmd_rx: mpsc::Receiver<Cmd>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+    chunk_cb: Option<AudioChunkCallback>,
     stop_flag: Arc<AtomicBool>,
 ) {
     let mut frame_resampler = FrameResampler::new(
@@ -457,6 +490,15 @@ fn run_consumer(
             if let Some(cb) = &level_cb {
                 cb(buckets);
             }
+        }
+
+        // ---------- wake-word sink --------------------------------------- //
+        // Forward the raw chunk to any external listener (e.g. the
+        // wake-word detector) before any further processing. The callback
+        // is invoked regardless of whether the user is currently recording
+        // — that's the whole point of "always-on" microphone mode.
+        if let Some(cb) = &chunk_cb {
+            cb(&raw, in_sample_rate);
         }
 
         // ---------- existing pipeline ------------------------------------ //
