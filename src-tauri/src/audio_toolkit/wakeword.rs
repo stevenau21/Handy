@@ -32,6 +32,18 @@ pub struct WakeWordDetector {
     classifier_names: Vec<String>,
 }
 
+/// Quiet audio (<~3% of full-scale) is probably background noise; skip it.
+fn is_loud_enough(samples: &[i16]) -> bool {
+    let rms = (samples
+        .iter()
+        .map(|s| (*s as f32).powi(2))
+        .sum::<f32>()
+        / samples.len().max(1) as f32)
+        .sqrt();
+    // i16::MAX = 32767, so 3% = ~983
+    rms > 1200.0
+}
+
 impl WakeWordDetector {
     /// Create a new detector, loading the ONNX classifier from `model_path`.
     ///
@@ -84,18 +96,6 @@ impl WakeWordDetector {
             classifier_names,
         })
     }
-
-/// Quiet audio (<~3% of full-scale) is probably background noise; skip it.
-fn is_loud_enough(samples: &[i16]) -> bool {
-    let rms = (samples
-        .iter()
-        .map(|s| (*s as f32).powi(2))
-        .sum::<f32>()
-        / samples.len().max(1) as f32)
-        .sqrt();
-    // i16::MAX = 32767, so 3% = ~983
-    rms > 1200.0
-}
 
     /// Feed a chunk of mono i16 PCM samples to the detector.
     ///
