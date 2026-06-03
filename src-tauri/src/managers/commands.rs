@@ -86,7 +86,9 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             info!("Executing voice command: send_message(to='{}', msg='{}')", username, message);
             #[cfg(target_os = "windows")]
             {
-                let cmd_str = format!("dark-send -c \"{}\" \"{}\"", username, message);
+                // Use python -m dark_send so it works even when the script
+                // directory isn't in Handy's inherited PATH.
+                let cmd_str = format!("python -m dark_send -c \"{}\" \"{}\"", username, message);
                 let _ = std::process::Command::new("cmd")
                     .args(["/c", &cmd_str])
                     .spawn()
@@ -94,8 +96,8 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             }
             #[cfg(not(target_os = "windows"))]
             {
-                let _ = std::process::Command::new("dark-send")
-                    .args(["-c", username, &message])
+                let _ = std::process::Command::new("python3")
+                    .args(["-m", "dark_send", "-c", username, &message])
                     .spawn()
                     .map_err(|e| format!("Failed to send message via dark-send: {}", e))?;
             }
