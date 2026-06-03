@@ -6,10 +6,9 @@
 //! It is intentionally decoupled from the audio pipeline: the consumer
 //! (e.g. `AudioRecordingManager`) decides what to do with the score.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use livekit_wakeword::WakeWordModel;
 use log::{debug, info, warn};
-use std::error::Error;
 use std::path::Path;
 use std::sync::Mutex;
 
