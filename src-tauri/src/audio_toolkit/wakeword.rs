@@ -14,14 +14,13 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Default confidence threshold above which we consider a wake word detected.
-/// 0.7 is even stricter to minimize false positives from clicks and background noise.
-pub const DEFAULT_THRESHOLD: f32 = 0.7;
+/// 0.6 gives a good balance between responsiveness and false positives.
+pub const DEFAULT_THRESHOLD: f32 = 0.6;
 
-/// Number of samples required for a valid wake-word prediction (~2 seconds at
-/// 16 kHz, or the equivalent after internal resampling for other rates).
-/// The `WakeWordModel::predict` API will return zero scores for shorter
-/// chunks, so we buffer until we have enough.
-const PREDICT_CHUNK_SAMPLES: usize = 32_000; // 2.0 s @ 16 kHz
+/// Number of samples required for a valid wake-word prediction (1.5 seconds at
+/// 16 kHz). Shorter windows mean the model checks more frequently, reducing
+/// the chance that a wake word straddles an evaluation boundary.
+const PREDICT_CHUNK_SAMPLES: usize = 24_000; // 1.5 s @ 16 kHz
 
 /// State for the wake-word detector.
 pub struct WakeWordDetector {
@@ -86,12 +85,29 @@ impl WakeWordDetector {
         })
     }
 
+/// Quiet audio (<~3% of full-scale) is probably background noise; skip it.
+fn is_loud_enough(samples: &[i16]) -> bool {
+    let rms = (samples
+        .iter()
+        .map(|s| (*s as f32).powi(2))
+        .sum::<f32>()
+        / samples.len().max(1) as f32)
+        .sqrt();
+    // i16::MAX = 32767, so 3% = ~983
+    rms > 1200.0
+}
+
     /// Feed a chunk of mono i16 PCM samples to the detector.
     ///
     /// Returns the highest confidence score across all loaded classifiers
     /// if a prediction was run on this chunk, or `None` if the internal
     /// buffer has not yet accumulated enough samples for a prediction.
     pub fn feed_samples(&self, samples: &[i16]) -> Result<Option<f32>> {
+        // Skip very quiet chunks — background noise or playback leakage.
+        if !is_loud_enough(samples) {
+            return Ok(None);
+        }
+
         // Append to rolling buffer.
         {
             let mut buf = self.buffer.lock().expect("wakeword buffer poisoned");
