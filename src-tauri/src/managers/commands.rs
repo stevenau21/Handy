@@ -84,31 +84,28 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             }
 
             info!("Executing voice command: send_message(to='{}', msg='{}')", username, message);
+
+            // 1. Open Telegram Desktop to the user/chat.
+            let tg_url = format!("tg://resolve?domain={}", username);
             #[cfg(target_os = "windows")]
-            {
-                // Use full Python path — Handy's GUI process doesn't inherit
-                // the user's PATH. Also try `py` launcher and common paths.
-                let python_exe = {
-                    let candidates = [
-                        r"C:\Users\steve\AppData\Local\Programs\Python\Python311\python.exe",
-                        r"C:\Python311\python.exe",
-                        r"C:\Program Files\Python311\python.exe",
-                    ];
-                    candidates.iter().find(|p| std::path::Path::new(p).exists()).copied().unwrap_or("python")
-                };
-                let cmd_str = format!("{} -m dark_send.cli -c \"{}\" \"{}\"", python_exe, username, message);
-                let _ = std::process::Command::new("cmd")
-                    .args(["/c", &cmd_str])
-                    .spawn()
-                    .map_err(|e| format!("Failed to send message via dark-send: {}", e))?;
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = std::process::Command::new("python3")
-                    .args(["-m", "dark_send", "-c", username, &message])
-                    .spawn()
-                    .map_err(|e| format!("Failed to send message via dark-send: {}", e))?;
-            }
+            { let _ = std::process::Command::new("cmd").args(["/c", "start", "", &tg_url]).spawn().map_err(|e| format!("Failed to open Telegram: {}", e))?; }
+            #[cfg(target_os = "macos")]
+            { let _ = std::process::Command::new("open").arg(&tg_url).spawn().map_err(|e| format!("Failed to open Telegram: {}", e))?; }
+            #[cfg(target_os = "linux")]
+            { let _ = std::process::Command::new("xdg-open").arg(&tg_url).spawn().map_err(|e| format!("Failed to open Telegram: {}", e))?; }
+
+            // 2. Wait for Telegram to focus, then paste the message.
+            std::thread::sleep(std::time::Duration::from_millis(800));
+            let _ = app.run_on_main_thread({
+                let msg = message.clone();
+                let app = app.clone();
+                move || {
+                    if let Err(e) = crate::utils::paste(msg, app) {
+                        error!("Failed to paste message for command: {}", e);
+                    }
+                }
+            }).map_err(|e| format!("Failed to run on main thread: {}", e))?;
+
             Ok(())
         }
         "search_url" => {
