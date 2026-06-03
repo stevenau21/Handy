@@ -622,6 +622,7 @@
       "openApp": "Open App",
       "typeText": "Type Text",
       "searchUrl": "Search URL",
+      "sendMessage": "Send Message",
       "runScript": "Run Script"
     }
   }

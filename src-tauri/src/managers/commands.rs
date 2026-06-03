@@ -69,6 +69,38 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             let _ = app.run_on_main_thread({ let app = app.clone(); move || { if let Err(e) = crate::utils::paste(text, app) { error!("Failed to type text for command: {}", e); } } }).map_err(|e| format!("Failed to run on main thread: {}", e))?;
             Ok(())
         }
+        "send_message" => {
+            let username = cmd.action_payload.trim();
+            if username.is_empty() { return Err("Empty username payload".to_string()); }
+            let message = transcribed_text
+                .and_then(|t| {
+                    let q = extract_query_after_phrase(t, &cmd.phrase);
+                    if q.is_empty() { None } else { Some(q) }
+                })
+                .unwrap_or_default();
+
+            if message.is_empty() {
+                return Err("No message text extracted from transcription".to_string());
+            }
+
+            info!("Executing voice command: send_message(to='{}', msg='{}')", username, message);
+            #[cfg(target_os = "windows")]
+            {
+                let cmd_str = format!("dark-send -c \"{}\" \"{}\"", username, message);
+                let _ = std::process::Command::new("cmd")
+                    .args(["/c", &cmd_str])
+                    .spawn()
+                    .map_err(|e| format!("Failed to send message via dark-send: {}", e))?;
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = std::process::Command::new("dark-send")
+                    .args(["-c", username, &message])
+                    .spawn()
+                    .map_err(|e| format!("Failed to send message via dark-send: {}", e))?;
+            }
+            Ok(())
+        }
         "search_url" => {
             let base_url = cmd.action_payload.trim();
             if base_url.is_empty() { return Err("Empty search URL payload".to_string()); }
