@@ -620,7 +620,8 @@
     "action": {
       "openUrl": "Open URL",
       "openApp": "Open App",
-      "typeText": "Type Text"
+      "typeText": "Type Text",
+      "runScript": "Run Script"
     }
   }
 }

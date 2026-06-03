@@ -112,6 +112,28 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String
             }).map_err(|e| format!("Failed to run on main thread: {}", e))?;
             Ok(())
         }
+        "run_script" => {
+            let script = cmd.action_payload.trim();
+            if script.is_empty() {
+                return Err("Empty script payload".to_string());
+            }
+            info!("Executing voice command: run_script({})", script);
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/c", script])
+                    .spawn()
+                    .map_err(|e| format!("Failed to run script: {}", e))?;
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = std::process::Command::new("sh")
+                    .args(["-c", script])
+                    .spawn()
+                    .map_err(|e| format!("Failed to run script: {}", e))?;
+            }
+            Ok(())
+        }
         _ => Err(format!("Unknown action_type: {}", cmd.action_type)),
     }
 }
