@@ -1,5 +1,5 @@
 use crate::settings::VoiceCommand;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tauri::AppHandle;
 
 /// Check if transcribed text is a voice command.
@@ -80,17 +80,9 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String
             info!("Executing voice command: open_app({})", app_name);
             #[cfg(target_os = "windows")]
             {
-                // Build a single cmd string so we can safely quote the argument.
-                // This lets users pass either a simple name ("chrome") or a full
-                // path containing spaces ("C:\...\Telegram Desktop\Telegram.lnk").
-                let start_cmd = format!(
-                    "start \"\" \"{}\"",
-                    app_name.replace("\"", "\\\"")
-                );
-                let _ = std::process::Command::new("cmd")
-                    .args(["/c", &start_cmd])
-                    .spawn()
-                    .map_err(|e| format!("Failed to open app: {}", e))?;
+                // Use ShellExecuteW to open apps by name or path.
+                // This handles paths with spaces and .lnk files correctly.
+                open_with_shell_execute(app_name);
             }
             #[cfg(target_os = "macos")]
             {
@@ -136,22 +128,65 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String
                 script = script[7..].to_string();
             }
             info!("Executing voice command: run_script({})", script);
+
             #[cfg(target_os = "windows")]
             {
-                let _ = std::process::Command::new("cmd")
-                    .args(["/c", &script])
-                    .spawn()
-                    .map_err(|e| format!("Failed to run script: {}", e))?;
+                // Strip "start "" prefix — ShellExecuteW opens files directly
+                // so `start` is unnecessary and causes quoting issues.
+                let mut file_or_cmd = script.clone();
+                let s_lower = file_or_cmd.to_lowercase();
+                if s_lower.starts_with("start \"\" ") {
+                    file_or_cmd = file_or_cmd[9..].to_string();
+                } else if s_lower.starts_with("start ") {
+                    // start <window_title> <path> — skip window title
+                    let after_start = &file_or_cmd[6..];
+                    if let Some(pos) = after_start.find(' ') {
+                        file_or_cmd = after_start[pos + 1..].to_string();
+                    }
+                }
+                open_with_shell_execute(&file_or_cmd);
             }
             #[cfg(not(target_os = "windows"))]
             {
                 let _ = std::process::Command::new("sh")
-                    .args(["-c", script])
+                    .args(["-c", &script])
                     .spawn()
                     .map_err(|e| format!("Failed to run script: {}", e))?;
             }
             Ok(())
         }
         _ => Err(format!("Unknown action_type: {}", cmd.action_type)),
+    }
+}
+
+/// On Windows, use ShellExecuteW to open a file, .lnk shortcut, or app.
+/// This avoids the quoting issues that plague std::process::Command with cmd.exe.
+#[cfg(target_os = "windows")]
+fn open_with_shell_execute(path: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    // Convert path to null-terminated UTF-16
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let hinstance = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR::from_raw("open\0".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>().as_ptr()),
+            PCWSTR::from_raw(wide.as_ptr()),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+
+    // ShellExecuteW returns an HINSTANCE (raw pointer wrapper).
+    // Values <= 32 indicate error (HINSTANCE_ERROR).
+    let code = (hinstance.0 as *const core::ffi::c_void) as isize;
+    if code <= 32 {
+        warn!("ShellExecuteW failed (code {}) for path: {}", code, path);
+    } else {
+        info!("ShellExecuteW succeeded for: {}", path);
     }
 }
