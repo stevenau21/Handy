@@ -123,15 +123,23 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String
             Ok(())
         }
         "run_script" => {
-            let script = cmd.action_payload.trim();
+            let mut script = cmd.action_payload.trim().to_string();
             if script.is_empty() {
                 return Err("Empty script payload".to_string());
+            }
+            // Strip accidental "cmd /c " or "cmd.exe /c " prefix since we
+            // already invoke through cmd on Windows.
+            let lowered = script.to_lowercase();
+            if lowered.starts_with("cmd.exe /c ") {
+                script = script[11..].to_string();
+            } else if lowered.starts_with("cmd /c ") {
+                script = script[7..].to_string();
             }
             info!("Executing voice command: run_script({})", script);
             #[cfg(target_os = "windows")]
             {
                 let _ = std::process::Command::new("cmd")
-                    .args(["/c", script])
+                    .args(["/c", &script])
                     .spawn()
                     .map_err(|e| format!("Failed to run script: {}", e))?;
             }
