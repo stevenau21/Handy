@@ -141,7 +141,7 @@ export const VoiceCommandsSettings: React.FC = () => {
                     : cmd.action_type === "open_app"
                       ? "chrome"
                       : cmd.action_type === "run_script"
-                        ? r"start notepad || open -a Notes"
+                        ? "start notepad || open -a Notes"
                         : t("commands.payloadPlaceholder", "Text to type…")
                 }
                 className="flex-1 bg-transparent border-b border-mid-gray/30 focus:border-logo-primary outline-none text-sm py-1 px-0 text-foreground"
