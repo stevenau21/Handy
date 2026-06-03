@@ -13,8 +13,9 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Default confidence threshold above which we consider a wake word detected.
-/// 0.6 gives a good balance between responsiveness and false positives.
-pub const DEFAULT_THRESHOLD: f32 = 0.6;
+/// 0.55 is even more permissive while still keeping false positives under
+/// control for a personally-trained model.
+pub const DEFAULT_THRESHOLD: f32 = 0.55;
 
 /// Number of samples required for a valid wake-word prediction (1.5 seconds at
 /// 16 kHz). Shorter windows mean the model checks more frequently, reducing
@@ -29,18 +30,6 @@ pub struct WakeWordDetector {
     buffer: Mutex<Vec<i16>>,
     /// Names of the loaded classifiers (e.g. "hey_livekit").
     classifier_names: Vec<String>,
-}
-
-/// Quiet audio (<~3% of full-scale) is probably background noise; skip it.
-fn is_loud_enough(samples: &[i16]) -> bool {
-    let rms = (samples
-        .iter()
-        .map(|s| (*s as f32).powi(2))
-        .sum::<f32>()
-        / samples.len().max(1) as f32)
-        .sqrt();
-    // i16::MAX = 32767, so 3% = ~983
-    rms > 1200.0
 }
 
 impl WakeWordDetector {
@@ -102,11 +91,6 @@ impl WakeWordDetector {
     /// if a prediction was run on this chunk, or `None` if the internal
     /// buffer has not yet accumulated enough samples for a prediction.
     pub fn feed_samples(&self, samples: &[i16]) -> Result<Option<f32>> {
-        // Skip very quiet chunks — background noise or playback leakage.
-        if !is_loud_enough(samples) {
-            return Ok(None);
-        }
-
         // Append to rolling buffer.
         {
             let mut buf = self.buffer.lock().expect("wakeword buffer poisoned");
@@ -139,7 +123,7 @@ impl WakeWordDetector {
                         .copied()
                         .fold(f32::NEG_INFINITY, f32::max);
                     if max_score.is_finite() {
-                        debug!(
+                        info!(
                             "Wake-word prediction scores: {:?} (max={:.3})",
                             predictions, max_score
                         );
