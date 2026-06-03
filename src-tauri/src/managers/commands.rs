@@ -86,9 +86,17 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             info!("Executing voice command: send_message(to='{}', msg='{}')", username, message);
             #[cfg(target_os = "windows")]
             {
-                // Use python -m dark_send so it works even when the script
-                // directory isn't in Handy's inherited PATH.
-                let cmd_str = format!("python -m dark_send -c \"{}\" \"{}\"", username, message);
+                // Use full Python path — Handy's GUI process doesn't inherit
+                // the user's PATH. Also try `py` launcher and common paths.
+                let python_exe = {
+                    let candidates = [
+                        r"C:\Users\steve\AppData\Local\Programs\Python\Python311\python.exe",
+                        r"C:\Python311\python.exe",
+                        r"C:\Program Files\Python311\python.exe",
+                    ];
+                    candidates.iter().find(|p| std::path::Path::new(p).exists()).copied().unwrap_or("python")
+                };
+                let cmd_str = format!("{} -m dark_send -c \"{}\" \"{}\"", python_exe, username, message);
                 let _ = std::process::Command::new("cmd")
                     .args(["/c", &cmd_str])
                     .spawn()
