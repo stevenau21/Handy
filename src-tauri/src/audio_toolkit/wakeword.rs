@@ -13,14 +13,10 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Default confidence threshold above which we consider a wake word detected.
-/// 0.55 is even more permissive while still keeping false positives under
-/// control for a personally-trained model.
-pub const DEFAULT_THRESHOLD: f32 = 0.55;
-
-/// Number of samples required for a valid wake-word prediction (1.5 seconds at
-/// 16 kHz). Shorter windows mean the model checks more frequently, reducing
-/// the chance that a wake word straddles an evaluation boundary.
-const PREDICT_CHUNK_SAMPLES: usize = 24_000; // 1.5 s @ 16 kHz
+/// Previously 0.55 proved far too permissive with this mic/environment,
+/// triggering on casual speech and keyboard noise.  0.75 requires a much
+/// stronger match while still allowing clear utterances of the wake word.
+pub const DEFAULT_THRESHOLD: f32 = 0.75;
 
 /// State for the wake-word detector.
 pub struct WakeWordDetector {
@@ -30,6 +26,9 @@ pub struct WakeWordDetector {
     buffer: Mutex<Vec<i16>>,
     /// Names of the loaded classifiers (e.g. "hey_livekit").
     classifier_names: Vec<String>,
+    /// Incoming sample rate (device rate). Used to compute how many samples
+    /// correspond to ~2 s of audio so the model receives a full window.
+    sample_rate: u32,
 }
 
 impl WakeWordDetector {
@@ -78,10 +77,13 @@ impl WakeWordDetector {
         // Touch the model so the compiler doesn't drop it.
         let _ = &mut model;
 
+        // Buffer holds roughly 2 seconds of audio at the *incoming* rate.
+        let buf_cap = (sample_rate as usize) * 2;
         Ok(Self {
             model: Mutex::new(Some(model)),
-            buffer: Mutex::new(Vec::with_capacity(PREDICT_CHUNK_SAMPLES * 2)),
+            buffer: Mutex::new(Vec::with_capacity(buf_cap * 2)),
             classifier_names,
+            sample_rate,
         })
     }
 
@@ -91,18 +93,21 @@ impl WakeWordDetector {
     /// if a prediction was run on this chunk, or `None` if the internal
     /// buffer has not yet accumulated enough samples for a prediction.
     pub fn feed_samples(&self, samples: &[i16]) -> Result<Option<f32>> {
+        // Number of samples that correspond to ~2 s at the incoming device rate.
+        let predict_chunk_samples = (self.sample_rate as usize) * 2;
+
         // Append to rolling buffer.
         {
             let mut buf = self.buffer.lock().expect("wakeword buffer poisoned");
             buf.extend_from_slice(samples);
-            if buf.len() < PREDICT_CHUNK_SAMPLES {
+            if buf.len() < predict_chunk_samples {
                 return Ok(None);
             }
 
             // We have enough samples; drain exactly one prediction window.
             // (We keep any extra in the buffer for the next call so we
             // don't drop audio.)
-            let to_predict: Vec<i16> = buf.drain(..PREDICT_CHUNK_SAMPLES).collect();
+            let to_predict: Vec<i16> = buf.drain(..predict_chunk_samples).collect();
             // Lock is released at end of this block.
             let mut model_guard = self.model.lock().expect("wakeword model poisoned");
             let model = match model_guard.as_mut() {

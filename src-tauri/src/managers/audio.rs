@@ -4,6 +4,7 @@ use crate::audio_toolkit::{
 use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
+use cpal::traits::{DeviceTrait, HostTrait};
 use log::{debug, error, info, warn};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -239,15 +240,14 @@ impl AudioRecordingManager {
             wakeword: Arc::new(Mutex::new(None)),
         };
 
-        // Wake-word detector is now enabled with a custom trained model.
-        if let Err(e) = manager.preload_wakeword() {
-            warn!("Wake-word model unavailable: {e}");
-        }
+        // Wake-word auto-trigger disabled: the model is too sensitive for this
+        // mic / environment and fires on casual speech and keyboard noise.
+        // Voice commands still work via the keyboard-shortcut → transcribe →
+        // parse_command flow in actions.rs.
+        let has_wakeword = false;
 
         // Always-on?  Open immediately.
-        // Also open if wake-word detector is loaded — it needs audio to listen.
-        let has_wakeword = manager.wakeword.lock().unwrap().is_some();
-        if matches!(mode, MicrophoneMode::AlwaysOn) || has_wakeword {
+        if matches!(mode, MicrophoneMode::AlwaysOn) {
             manager.start_microphone_stream()?;
         }
 
@@ -357,11 +357,28 @@ impl AudioRecordingManager {
             );
         }
 
-        // The vendored crate resamples internally; pass the rate the model
-        // was trained on (16 kHz) so no extra conversion happens.
-        let detector = WakeWordDetector::new(&model_path, 16_000)
+        // Determine the actual microphone sample rate so the wake-word model
+        // resamples correctly.  Defaults to 16 kHz if no device is available.
+        let settings = get_settings(&self.app_handle);
+        let sample_rate = self
+            .get_effective_microphone_device(&settings)
+            .and_then(|d| d.default_input_config().ok())
+            .map(|c| c.sample_rate().0)
+            .or_else(|| {
+                cpal::default_host()
+                    .default_input_device()
+                    .and_then(|d| d.default_input_config().ok())
+                    .map(|c| c.sample_rate().0)
+            })
+            .unwrap_or(16_000);
+
+        let detector = WakeWordDetector::new(&model_path, sample_rate)
             .map_err(|e| anyhow::anyhow!("Failed to create WakeWordDetector: {e}"))?;
-        info!("Wake-word detector ready: {:?}", detector.classifier_names());
+        info!(
+            "Wake-word detector ready: {:?} (sample rate: {} Hz)",
+            detector.classifier_names(),
+            sample_rate
+        );
         *guard = Some(Arc::new(detector));
         Ok(())
     }
