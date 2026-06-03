@@ -74,11 +74,21 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String
         }
         "open_app" => {
             let app_name = cmd.action_payload.trim();
+            if app_name.is_empty() {
+                return Err("Empty app name payload".to_string());
+            }
             info!("Executing voice command: open_app({})", app_name);
             #[cfg(target_os = "windows")]
             {
+                // Build a single cmd string so we can safely quote the argument.
+                // This lets users pass either a simple name ("chrome") or a full
+                // path containing spaces ("C:\...\Telegram Desktop\Telegram.lnk").
+                let start_cmd = format!(
+                    "start \"\" \"{}\"",
+                    app_name.replace("\"", "\\\"")
+                );
                 let _ = std::process::Command::new("cmd")
-                    .args(["/c", "start", "", app_name])
+                    .args(["/c", &start_cmd])
                     .spawn()
                     .map_err(|e| format!("Failed to open app: {}", e))?;
             }
