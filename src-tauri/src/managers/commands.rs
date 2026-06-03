@@ -69,6 +69,18 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             let _ = app.run_on_main_thread({ let app = app.clone(); move || { if let Err(e) = crate::utils::paste(text, app) { error!("Failed to type text for command: {}", e); } } }).map_err(|e| format!("Failed to run on main thread: {}", e))?;
             Ok(())
         }
+        "open_folder" => {
+            let folder_path = cmd.action_payload.trim();
+            if folder_path.is_empty() { return Err("Empty folder path".to_string()); }
+            info!("Executing voice command: open_folder({})", folder_path);
+            #[cfg(target_os = "windows")]
+            { open_with_shell_execute(folder_path); }
+            #[cfg(target_os = "macos")]
+            { let _ = std::process::Command::new("open").arg(folder_path).spawn().map_err(|e| format!("Failed to open folder: {}", e))?; }
+            #[cfg(target_os = "linux")]
+            { let _ = std::process::Command::new("xdg-open").arg(folder_path).spawn().map_err(|e| format!("Failed to open folder: {}", e))?; }
+            Ok(())
+        }
         "send_message" => {
             let username = cmd.action_payload.trim();
             if username.is_empty() { return Err("Empty username payload".to_string()); }

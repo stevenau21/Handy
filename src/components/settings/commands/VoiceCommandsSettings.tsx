@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Mic, Trash2, Plus, Globe, AppWindow, Type, Terminal, Search, Send } from "lucide-react";
+import { Mic, Trash2, Plus, Globe, AppWindow, Type, Terminal, Search, Send, FolderOpen } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui";
 import { commands } from "@/bindings";
-import type { VoiceCommand } from "@/bindings"; // auto-generated from Rust
+import type { VoiceCommand } from "@/bindings";
 
 const uuid = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -53,6 +53,18 @@ export const VoiceCommandsSettings: React.FC = () => {
   const update = (id: string, patch: Partial<VoiceCommand>) => {
     const next = cmds.map((c) => (c.id === id ? { ...c, ...patch } : c));
     save(next);
+  };
+
+  const browseFolder = async (cmdId: string) => {
+    try {
+      const { dialog } = await import("@tauri-apps/plugin-dialog");
+      const selected = await dialog.open({ directory: true, multiple: false });
+      if (selected && typeof selected === "string") {
+        update(cmdId, { action_type: "open_folder", action_payload: selected });
+      }
+    } catch (e) {
+      console.error("Folder picker failed:", e);
+    }
   };
 
   if (loading) return <p className="text-sm opacity-60">Loading…</p>;
@@ -123,6 +135,9 @@ export const VoiceCommandsSettings: React.FC = () => {
                 <option value="open_app">
                   {t("commands.action.openApp", "Open App")}
                 </option>
+                <option value="open_folder">
+                  {t("commands.action.openFolder", "Open Folder")}
+                </option>
                 <option value="type_text">
                   {t("commands.action.typeText", "Type Text")}
                 </option>
@@ -136,26 +151,40 @@ export const VoiceCommandsSettings: React.FC = () => {
                   {t("commands.action.runScript", "Run Script")}
                 </option>
               </select>
-              <input
-                value={cmd.action_payload}
-                onChange={(e) =>
-                  update(cmd.id, { action_payload: e.target.value })
-                }
-                placeholder={
-                  cmd.action_type === "open_url"
-                    ? "youtube.com"
-                    : cmd.action_type === "open_app"
-                      ? "chrome"
-                      : cmd.action_type === "search_url"
-                        ? "https://youtube.com/results?search_query="
-                        : cmd.action_type === "send_message"
-                          ? "hermes_opss_bot"
-                          : cmd.action_type === "run_script"
-                          ? "start notepad || open -a Notes"
-                          : t("commands.payloadPlaceholder", "Text to type…")
-                }
-                className="flex-1 bg-transparent border-b border-mid-gray/30 focus:border-logo-primary outline-none text-sm py-1 px-0 text-foreground"
-              />
+
+              <div className="flex items-center gap-1 flex-1">
+                <input
+                  value={cmd.action_payload}
+                  onChange={(e) =>
+                    update(cmd.id, { action_payload: e.target.value })
+                  }
+                  placeholder={
+                    cmd.action_type === "open_url"
+                      ? "youtube.com"
+                      : cmd.action_type === "open_app"
+                        ? "chrome"
+                        : cmd.action_type === "open_folder"
+                          ? "C:\\Users\\steve\\Downloads"
+                          : cmd.action_type === "search_url"
+                            ? "https://youtube.com/results?search_query="
+                            : cmd.action_type === "send_message"
+                              ? "hermes_opss_bot"
+                              : cmd.action_type === "run_script"
+                                ? "start notepad || open -a Notes"
+                                : t("commands.payloadPlaceholder", "Text to type…")
+                  }
+                  className="flex-1 bg-transparent border-b border-mid-gray/30 focus:border-logo-primary outline-none text-sm py-1 px-0 text-foreground"
+                />
+                {cmd.action_type === "open_folder" && (
+                  <button
+                    type="button"
+                    onClick={() => browseFolder(cmd.id)}
+                    className="text-logo-primary hover:opacity-80 px-1 py-0.5 rounded text-xs border border-logo-primary/30"
+                  >
+                    Browse…
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -175,6 +204,7 @@ export const VoiceCommandsSettings: React.FC = () => {
 const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
   if (type === "open_url") return <Globe className="w-4 h-4 opacity-60" />;
   if (type === "open_app") return <AppWindow className="w-4 h-4 opacity-60" />;
+  if (type === "open_folder") return <FolderOpen className="w-4 h-4 opacity-60" />;
   if (type === "search_url") return <Search className="w-4 h-4 opacity-60" />;
   if (type === "send_message") return <Send className="w-4 h-4 opacity-60" />;
   if (type === "run_script") return <Terminal className="w-4 h-4 opacity-60" />;
