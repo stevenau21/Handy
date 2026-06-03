@@ -621,6 +621,7 @@
       "openUrl": "Open URL",
       "openApp": "Open App",
       "typeText": "Type Text",
+      "searchUrl": "Search URL",
       "runScript": "Run Script"
     }
   }

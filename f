@@ -1,4 +1,7 @@
-use crate::settings::VoiceCommand;
+const fs = require('fs');
+const path = 'f:\\projects\\Handy\\src-tauri\\src\\managers\\commands.rs';
+
+const content = `use crate::settings::VoiceCommand;
 use log::{debug, error, info, warn};
 use tauri::AppHandle;
 
@@ -25,10 +28,8 @@ pub fn parse_command(text: &str, commands: &[VoiceCommand], wake_phrase: &str) -
         }
         let phrase_lower = cmd.phrase.to_lowercase();
         let text_lower = after_wake.to_lowercase();
-        // Substring match: "turn on youtube" matches "turn on youtube"
-        // or even if extra words follow
         if text_lower.contains(&phrase_lower) {
-            debug!("Voice command matched: '{}' → '{}'", after_wake, cmd.phrase);
+            debug!("Voice command matched: '{}' \\u{2192} '{}'", after_wake, cmd.phrase);
             return Some(cmd.clone());
         }
     }
@@ -36,30 +37,7 @@ pub fn parse_command(text: &str, commands: &[VoiceCommand], wake_phrase: &str) -
 }
 
 /// Execute a voice command action.
-/// Extract text that comes *after* the command phrase in the full transcript.
-/// e.g. text="open youtube and search for paintball", phrase="open youtube" => "paintball"
-fn extract_query_after_phrase(text: &str, phrase: &str) -> String {
-    let text_lower = text.to_lowercase();
-    let phrase_lower = phrase.to_lowercase();
-    if let Some(pos) = text_lower.find(&phrase_lower) {
-        let after = text_lower[pos + phrase_lower.len()..].trim();
-        // Strip connector words like "and", "for", "then", "search"
-        let cleaned = after
-            .trim_start_matches("and ")
-            .trim_start_matches("for ")
-            .trim_start_matches("then ")
-            .trim_start_matches("search ")
-            .trim_start_matches("search for ")
-            .trim()
-            .to_string();
-        if !cleaned.is_empty() {
-            return cleaned;
-        }
-    }
-    String::new()
-}
-
-pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Option<&str>) -> Result<(), String> {
+pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand) -> Result<(), String> {
     match cmd.action_type.as_str() {
         "open_url" => {
             let url = cmd.action_payload.trim();
@@ -103,8 +81,6 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             info!("Executing voice command: open_app({})", app_name);
             #[cfg(target_os = "windows")]
             {
-                // Use ShellExecuteW to open apps by name or path.
-                // This handles paths with spaces and .lnk files correctly.
                 open_with_shell_execute(app_name);
             }
             #[cfg(target_os = "macos")]
@@ -142,8 +118,6 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             if script.is_empty() {
                 return Err("Empty script payload".to_string());
             }
-            // Strip accidental "cmd /c " or "cmd.exe /c " prefix since we
-            // already invoke through cmd on Windows.
             let lowered = script.to_lowercase();
             if lowered.starts_with("cmd.exe /c ") {
                 script = script[11..].to_string();
@@ -154,14 +128,11 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
 
             #[cfg(target_os = "windows")]
             {
-                // Strip "start "" prefix — ShellExecuteW opens files directly
-                // so `start` is unnecessary and causes quoting issues.
                 let mut file_or_cmd = script.clone();
                 let s_lower = file_or_cmd.to_lowercase();
-                if s_lower.starts_with("start \"\" ") {
+                if s_lower.starts_with("start \\\"\\\" ") {
                     file_or_cmd = file_or_cmd[9..].to_string();
                 } else if s_lower.starts_with("start ") {
-                    // start <window_title> <path> — skip window title
                     let after_start = &file_or_cmd[6..];
                     if let Some(pos) = after_start.find(' ') {
                         file_or_cmd = after_start[pos + 1..].to_string();
@@ -193,10 +164,10 @@ fn open_with_shell_execute(path: &str) {
     // Convert path to null-terminated UTF-16
     let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
 
-    let hinstance = unsafe {
+    let result = unsafe {
         ShellExecuteW(
             None,
-            PCWSTR::from_raw("open\0".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>().as_ptr()),
+            PCWSTR::from_raw("open\\0".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>().as_ptr()),
             PCWSTR::from_raw(wide.as_ptr()),
             None,
             None,
@@ -204,12 +175,21 @@ fn open_with_shell_execute(path: &str) {
         )
     };
 
-    // ShellExecuteW returns an HINSTANCE (raw pointer wrapper).
-    // Values <= 32 indicate error (HINSTANCE_ERROR).
-    let code = (hinstance.0 as *const core::ffi::c_void) as isize;
-    if code <= 32 {
-        warn!("ShellExecuteW failed (code {}) for path: {}", code, path);
+    // ShellExecuteW returns an HINSTANCE. Values <= 32 indicate error.
+    let hinst = match result {
+        Ok(h) => (h.0 as *const core::ffi::c_void) as isize,
+        Err(e) => {
+            warn!("ShellExecuteW returned error: {:?} for path: {}", e, path);
+            return;
+        }
+    };
+    if hinst <= 32 {
+        warn!("ShellExecuteW failed (code {}) for path: {}", hinst, path);
     } else {
         info!("ShellExecuteW succeeded for: {}", path);
     }
 }
+`;
+
+fs.writeFileSync(path, content);
+console.log('Written commands.rs successfully');

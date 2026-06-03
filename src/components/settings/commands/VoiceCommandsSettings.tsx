@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Mic, Trash2, Plus, Globe, AppWindow, Type, Terminal } from "lucide-react";
+import { Mic, Trash2, Plus, Globe, AppWindow, Type, Terminal, Search } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui";
 import { commands } from "@/bindings";
 import type { VoiceCommand } from "@/bindings"; // auto-generated from Rust
@@ -126,6 +126,9 @@ export const VoiceCommandsSettings: React.FC = () => {
                 <option value="type_text">
                   {t("commands.action.typeText", "Type Text")}
                 </option>
+                <option value="search_url">
+                  {t("commands.action.searchUrl", "Search URL")}
+                </option>
                 <option value="run_script">
                   {t("commands.action.runScript", "Run Script")}
                 </option>
@@ -140,9 +143,11 @@ export const VoiceCommandsSettings: React.FC = () => {
                     ? "youtube.com"
                     : cmd.action_type === "open_app"
                       ? "chrome"
-                      : cmd.action_type === "run_script"
-                        ? "start notepad || open -a Notes"
-                        : t("commands.payloadPlaceholder", "Text to type…")
+                      : cmd.action_type === "search_url"
+                        ? "https://youtube.com/results?search_query="
+                        : cmd.action_type === "run_script"
+                          ? "start notepad || open -a Notes"
+                          : t("commands.payloadPlaceholder", "Text to type…")
                 }
                 className="flex-1 bg-transparent border-b border-mid-gray/30 focus:border-logo-primary outline-none text-sm py-1 px-0 text-foreground"
               />
@@ -165,6 +170,7 @@ export const VoiceCommandsSettings: React.FC = () => {
 const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
   if (type === "open_url") return <Globe className="w-4 h-4 opacity-60" />;
   if (type === "open_app") return <AppWindow className="w-4 h-4 opacity-60" />;
+  if (type === "search_url") return <Search className="w-4 h-4 opacity-60" />;
   if (type === "run_script") return <Terminal className="w-4 h-4 opacity-60" />;
   return <Type className="w-4 h-4 opacity-60" />;
 };

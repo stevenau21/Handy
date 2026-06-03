@@ -615,7 +615,7 @@ impl ShortcutAction for TranscribeAction {
 
                                 if let Some(cmd) = command_matched {
                                     info!("Voice command triggered from transcription: {}", cmd.phrase);
-                                    if let Err(e) = execute_command(&ah, &cmd) {
+                                    if let Err(e) = execute_command(&ah, &cmd, Some(&final_text)) {
                                         error!("Voice command execution failed: {}", e);
                                     }
                                     // Skip pasting when a command is executed.
