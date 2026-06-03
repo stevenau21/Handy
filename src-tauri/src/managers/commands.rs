@@ -96,7 +96,7 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
                     ];
                     candidates.iter().find(|p| std::path::Path::new(p).exists()).copied().unwrap_or("python")
                 };
-                let cmd_str = format!("{} -m dark_send -c \"{}\" \"{}\"", python_exe, username, message);
+                let cmd_str = format!("{} -m dark_send.cli -c \"{}\" \"{}\"", python_exe, username, message);
                 let _ = std::process::Command::new("cmd")
                     .args(["/c", &cmd_str])
                     .spawn()
