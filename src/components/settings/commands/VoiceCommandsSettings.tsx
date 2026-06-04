@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Mic, Trash2, Plus, Globe, AppWindow, Type, Terminal, Search, Send, FolderOpen } from "lucide-react";
+import { Mic, Trash2, Plus, Globe, AppWindow, Type, Terminal, Search, Send, FolderOpen, Layers } from "lucide-react";
 import { ToggleSwitch } from "@/components/ui";
 import { commands } from "@/bindings";
 import type { VoiceCommand } from "@/bindings";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 const uuid = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -17,7 +18,9 @@ export const VoiceCommandsSettings: React.FC = () => {
     commands
       .getVoiceCommands()
       .then((res) => {
-        setCmds(res.data);
+        if (res.status === "ok") {
+          setCmds(res.data);
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -40,14 +43,22 @@ export const VoiceCommandsSettings: React.FC = () => {
   };
 
   const add = () => {
-    const next: VoiceCommand = {
+    const newCmd: VoiceCommand = {
       id: uuid(),
       phrase: "",
       action_type: "open_url",
       action_payload: "",
       enabled: true,
     };
-    save([...cmds, next]);
+    // If workspace is enabled, auto-add the new command to it
+    if (workspaceEnabled && workspaceCmd) {
+      const ids = new Set(workspaceCommandIds);
+      ids.add(newCmd.id);
+      newCmd.action_payload = JSON.stringify([...ids]);
+      // Update workspace payload too
+      update(workspaceCmd.id, { action_payload: JSON.stringify([...ids]) });
+    }
+    save([...cmds, newCmd]);
   };
 
   const update = (id: string, patch: Partial<VoiceCommand>) => {
@@ -57,14 +68,61 @@ export const VoiceCommandsSettings: React.FC = () => {
 
   const browseFolder = async (cmdId: string) => {
     try {
-      const { dialog } = await import("@tauri-apps/plugin-dialog");
-      const selected = await dialog.open({ directory: true, multiple: false });
+      const selected = await openDialog({ directory: true, multiple: false });
       if (selected && typeof selected === "string") {
         update(cmdId, { action_type: "open_folder", action_payload: selected });
       }
     } catch (e) {
       console.error("Folder picker failed:", e);
     }
+  };
+
+  // Workspace: find or create the workspace command
+  const workspaceCmd = cmds.find((c) => c.action_type === "run_workspace");
+  const workspaceEnabled = workspaceCmd?.enabled ?? false;
+  const workspacePhrase = workspaceCmd?.phrase ?? "";
+  // Parse workspace payload as an array of command IDs
+  const workspaceCommandIds: string[] = (() => {
+    if (!workspaceCmd || !workspaceCmd.action_payload) return [];
+    try {
+      return JSON.parse(workspaceCmd.action_payload);
+    } catch {
+      return [];
+    }
+  })();
+  // All commands except the workspace command itself
+  const nonWorkspaceCmds = cmds.filter((c) => c.action_type !== "run_workspace");
+
+  const toggleWorkspaceCommand = (cmdId: string) => {
+    if (!workspaceCmd) return;
+    const ids = new Set(workspaceCommandIds);
+    if (ids.has(cmdId)) {
+      ids.delete(cmdId);
+    } else {
+      ids.add(cmdId);
+    }
+    update(workspaceCmd.id, { action_payload: JSON.stringify([...ids]) });
+  };
+
+  const toggleWorkspaceEnabled = () => {
+    if (!workspaceCmd) {
+      // Create a new workspace command
+      const newCmd: VoiceCommand = {
+        id: uuid(),
+        phrase: "activate workspace",
+        action_type: "run_workspace",
+        action_payload: JSON.stringify(nonWorkspaceCmds.map((c) => c.id)),
+        enabled: true,
+      };
+      save([...cmds, newCmd]);
+    } else {
+      toggle(workspaceCmd.id);
+    }
+  };
+
+  const updateWorkspacePhrase = (phrase: string) => {
+    if (!workspaceCmd) return;
+    update(workspaceCmd.id, { phrase });
   };
 
   if (loading) return <p className="text-sm opacity-60">Loading…</p>;
@@ -85,6 +143,73 @@ export const VoiceCommandsSettings: React.FC = () => {
         )}
       </p>
 
+      {/* Workspace Section */}
+      <div className="rounded-xl border border-logo-primary/20 bg-logo-primary/5 p-4 flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <Layers className="w-5 h-5 text-logo-primary" />
+          <h3 className="text-base font-semibold">
+            {t("commands.workspace.title", "Workspace")}
+          </h3>
+          <ToggleSwitch
+            checked={workspaceEnabled}
+            onChange={toggleWorkspaceEnabled}
+            label=""
+            description=""
+          />
+        </div>
+        <p className="text-sm text-foreground/70">
+          {t(
+            "commands.workspace.description",
+            "Run multiple commands at once. Toggle on, select which commands to include, then say the trigger phrase.",
+          )}
+        </p>
+        {workspaceEnabled && (
+          <>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-foreground/60">Trigger phrase:</label>
+              <input
+                value={workspacePhrase}
+                onChange={(e) => updateWorkspacePhrase(e.target.value)}
+                placeholder={t(
+                  "commands.workspace.phrasePlaceholder",
+                  'e.g. "activate workspace"',
+                )}
+                className="flex-1 bg-transparent border-b border-mid-gray/30 focus:border-logo-primary outline-none text-sm py-1 px-0 text-foreground"
+              />
+            </div>
+            <div className="flex flex-col gap-2 mt-1">
+              <span className="text-xs text-foreground/60">
+                {t(
+                  "commands.workspace.selectCommands",
+                  "Select commands to include in the workspace:",
+                )}
+              </span>
+              {nonWorkspaceCmds.map((cmd) => (
+                <label
+                  key={cmd.id}
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={workspaceCommandIds.includes(cmd.id)}
+                    onChange={() => toggleWorkspaceCommand(cmd.id)}
+                    className="accent-logo-primary"
+                  />
+                  <ActionIcon type={cmd.action_type} />
+                  <span className="text-foreground/80">
+                    {cmd.phrase || "(unnamed)"}
+                  </span>
+                  <span className="text-foreground/40 text-xs ml-auto">
+                    {cmd.action_type.replace("_", " ")}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Regular Commands Section */}
       <div className="flex flex-col gap-3">
         {cmds.map((cmd) => (
           <div
@@ -208,5 +333,6 @@ const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
   if (type === "search_url") return <Search className="w-4 h-4 opacity-60" />;
   if (type === "send_message") return <Send className="w-4 h-4 opacity-60" />;
   if (type === "run_script") return <Terminal className="w-4 h-4 opacity-60" />;
+  if (type === "run_workspace") return <Layers className="w-4 h-4 opacity-60" />;
   return <Type className="w-4 h-4 opacity-60" />;
 };

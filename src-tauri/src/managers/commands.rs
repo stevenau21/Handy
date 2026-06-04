@@ -157,6 +157,31 @@ pub fn execute_command(app: &AppHandle, cmd: &VoiceCommand, transcribed_text: Op
             { let _ = std::process::Command::new("sh").args(["-c", &script]).spawn().map_err(|e| format!("Failed to run script: {}", e))?; }
             Ok(())
         }
+        "run_workspace" => {
+            // Parse the payload as a JSON array of command IDs and execute each one in sequence
+            let payload = cmd.action_payload.trim();
+            if payload.is_empty() { return Err("Empty workspace payload".to_string()); }
+            let cmd_ids: Vec<String> = serde_json::from_str(payload)
+                .map_err(|e| format!("Invalid workspace payload JSON: {}", e))?;
+            info!("Executing workspace with {} commands", cmd_ids.len());
+            let all_commands = crate::settings::get_settings(app).voice_commands;
+            for cid in cmd_ids {
+                match all_commands.iter().find(|c| c.id == cid) {
+                    Some(inner_cmd) => {
+                        if inner_cmd.enabled {
+                            info!("Workspace: running command '{}' ({})", inner_cmd.phrase, inner_cmd.action_type);
+                            if let Err(e) = execute_command(app, inner_cmd, transcribed_text) {
+                                warn!("Workspace: command '{}' failed: {}", inner_cmd.phrase, e);
+                            }
+                            // Small delay between commands to avoid race conditions (e.g. window focus)
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                        }
+                    }
+                    None => warn!("Workspace: command ID '{}' not found", cid),
+                }
+            }
+            Ok(())
+        }
         _ => Err(format!("Unknown action_type: {}", cmd.action_type)),
     }
 }
