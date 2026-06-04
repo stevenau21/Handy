@@ -841,6 +841,94 @@ async updateRecordingRetentionPeriod(period: string) : Promise<Result<null, stri
     else return { status: "error", error: e  as any };
 }
 },
+async getClipboardEntries(cursor: number | null, limit: number | null, filterSaved: boolean | null, search: string | null) : Promise<Result<PaginatedClipboard, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_clipboard_entries", { cursor, limit, filterSaved, search }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async addClipboardEntry(text: string, source: string) : Promise<Result<ClipboardEntry, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_clipboard_entry", { text, source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async editClipboardEntry(id: number, newText: string) : Promise<Result<ClipboardEntry, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("edit_clipboard_entry", { id, newText }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setClipboardEntryNote(id: number, note: string | null) : Promise<Result<ClipboardEntry, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_clipboard_entry_note", { id, note }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async toggleClipboardEntrySaved(id: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("toggle_clipboard_entry_saved", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteClipboardEntry(id: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_clipboard_entry", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearAllClipboardEntries() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_all_clipboard_entries") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async copyToClipboard(text: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("copy_to_clipboard", { text }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async ocrGrabScreen() : Promise<Result<ClipboardEntry, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ocr_grab_screen") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async startClipboardAutoTrack() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_clipboard_auto_track") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async stopClipboardAutoTrack() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stop_clipboard_auto_track") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Stub implementation for non-macOS platforms
  * Always returns false since laptop detection is macOS-specific
@@ -859,8 +947,10 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 
 export const events = __makeEvents__<{
+clipboardUpdatePayload: ClipboardUpdatePayload,
 historyUpdatePayload: HistoryUpdatePayload
 }>({
+clipboardUpdatePayload: "clipboard-update-payload",
 historyUpdatePayload: "history-update-payload"
 })
 
@@ -875,7 +965,9 @@ export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+export type ClipboardEntry = { id: number; text: string; note: string | null; timestamp: number; saved: boolean; source: string }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
+export type ClipboardUpdatePayload = { action: "added"; entry: ClipboardEntry } | { action: "updated"; entry: ClipboardEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number } | { action: "cleared" }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
@@ -897,6 +989,7 @@ export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_15"
 export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm"
 export type OverlayPosition = "none" | "top" | "bottom"
+export type PaginatedClipboard = { entries: ClipboardEntry[]; has_more: boolean }
 export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v" | "external_script"
 export type PermissionAccess = "allowed" | "denied" | "unknown"

@@ -1,0 +1,381 @@
+﻿<Window
+    x:Class="Text_Grab.Views.FullscreenGrab"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="clr-namespace:Text_Grab"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:wpfui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="Text Grab"
+    Width="800"
+    Height="450"
+    AllowsTransparency="True"
+    Background="Transparent"
+    Closing="Window_Closing"
+    Loaded="Window_Loaded"
+    ResizeMode="NoResize"
+    ShowInTaskbar="False"
+    Topmost="False"
+    Unloaded="Window_Unloaded"
+    WindowStyle="None"
+    mc:Ignorable="d">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Styles/SelectionStyleComboBoxItemStyle.xaml" />
+                <ResourceDictionary Source="/Styles/SelectionStyleComboBoxStyle.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid d:Background="NavajoWhite">
+        <Image x:Name="BackgroundImage" Stretch="UniformToFill" />
+        <Canvas
+            Name="RegionClickCanvas"
+            ContextMenuOpening="RegionClickCanvas_ContextMenuOpening"
+            Cursor="Cross"
+            MouseDown="RegionClickCanvas_MouseDown"
+            MouseEnter="RegionClickCanvas_MouseEnter"
+            MouseLeave="RegionClickCanvas_MouseLeave"
+            MouseMove="RegionClickCanvas_MouseMove"
+            MouseUp="RegionClickCanvas_MouseUp"
+            PreviewMouseWheel="RegionClickCanvas_PreviewMouseWheel">
+            <Canvas.Clip>
+                <CombinedGeometry GeometryCombineMode="Exclude">
+                    <CombinedGeometry.Geometry1>
+                        <RectangleGeometry x:Name="FullWindow" />
+                    </CombinedGeometry.Geometry1>
+                    <CombinedGeometry.Geometry2>
+                        <RectangleGeometry x:Name="clippingGeometry" />
+                    </CombinedGeometry.Geometry2>
+                </CombinedGeometry>
+            </Canvas.Clip>
+            <Canvas.Background>
+                <SolidColorBrush
+                    x:Name="BackgroundBrush"
+                    Opacity="0"
+                    Color="{wpfui:ThemeResource ApplicationBackgroundColor}" />
+            </Canvas.Background>
+            <Canvas.ContextMenu>
+                <ContextMenu>
+                    <MenuItem
+                        Name="SingleLineMenuItem"
+                        Click="SingleLineMenuItem_Click"
+                        Header="Make Result Text Single Line"
+                        IsCheckable="True" />
+                    <MenuItem
+                        Name="TableMenuItem"
+                        Click="TableToggleButton_Click"
+                        Header="OCR text as a table"
+                        IsCheckable="True" />
+                    <MenuItem
+                        Name="FreezeMenuItem"
+                        Click="FreezeMenuItem_Click"
+                        Header="Freeze"
+                        IsCheckable="True"
+                        IsChecked="True" />
+                    <MenuItem Header="Selection Style">
+                        <MenuItem
+                            x:Name="RegionSelectionMenuItem"
+                            Click="SelectionStyleMenuItem_Click"
+                            Header="Rectangle 1 - Drag a box"
+                            InputGestureText="R"
+                            IsCheckable="True"
+                            IsChecked="True"
+                            Tag="Region" />
+                        <MenuItem
+                            x:Name="WindowSelectionMenuItem"
+                            Click="SelectionStyleMenuItem_Click"
+                            Header="Window - Hover and click"
+                            InputGestureText="W"
+                            IsCheckable="True"
+                            Tag="Window" />
+                        <MenuItem
+                            x:Name="FreeformSelectionMenuItem"
+                            Click="SelectionStyleMenuItem_Click"
+                            Header="Freeform - Draw any shape"
+                            InputGestureText="D"
+                            IsCheckable="True"
+                            Tag="Freeform" />
+                        <MenuItem
+                            x:Name="AdjustAfterSelectionMenuItem"
+                            Click="SelectionStyleMenuItem_Click"
+                            Header="Rectangle 2 - Drag, then adjust"
+                            InputGestureText="A"
+                            IsCheckable="True"
+                            Tag="AdjustAfter" />
+                    </MenuItem>
+                    <Separator />
+                    <MenuItem
+                        Name="NewGrabFrameMenuItem"
+                        Click="NewGrabFrameMenuItem_Click"
+                        Header="Place Grab Frame"
+                        IsCheckable="True" />
+                    <MenuItem
+                        Name="SendToEtwMenuItem"
+                        Click="SendToEditTextToggleButton_Click"
+                        Header="Send to Edit Text Window"
+                        IsCheckable="True" />
+                    <MenuItem
+                        Name="EditLastGrabMenuItem"
+                        Click="EditLastGrab_Click"
+                        Header="Edit Last Grab" />
+                    <MenuItem
+                        Name="SettingsMenuItem"
+                        Click="SettingsMenuItem_Click"
+                        Header="Settings" />
+                    <Separator />
+                    <MenuItem
+                        Name="CancelMenuItem"
+                        Click="CancelMenuItem_Click"
+                        Header="Cancel" />
+                </ContextMenu>
+            </Canvas.ContextMenu>
+        </Canvas>
+        <Canvas x:Name="SelectionOutlineHost" IsHitTestVisible="False" />
+        <Canvas x:Name="TemplateOverlayHost" IsHitTestVisible="False" />
+        <Border
+            x:Name="TopButtonsStackPanel"
+            Margin="12"
+            Padding="8"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            d:Background="Gray"
+            d:Visibility="Visible"
+            Background="{DynamicResource ApplicationBackgroundBrush}"
+            CornerRadius="8"
+            MouseEnter="RegionClickCanvas_MouseEnter"
+            MouseLeave="RegionClickCanvas_MouseLeave"
+            Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect
+                    BlurRadius="32"
+                    Direction="-90"
+                    Opacity="0.6"
+                    RenderingBias="Performance" />
+            </Border.Effect>
+            <StackPanel
+                Margin="2,0"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Orientation="Horizontal">
+                <ComboBox
+                    x:Name="SelectionStyleComboBox"
+                    Width="34"
+                    Height="34"
+                    Margin="0,0,4,0"
+                    ItemContainerStyle="{StaticResource SelectionStyleComboBoxItemStyle}"
+                    SelectionChanged="SelectionStyleComboBox_SelectionChanged"
+                    Style="{StaticResource SelectionStyleComboBoxStyle}"
+                    ToolTip="Choose how to define the capture area.">
+                    <ComboBoxItem Tag="Region" ToolTip="Region select (R)">
+                        <wpfui:SymbolIcon FontSize="22" Symbol="RectangleLandscape24" />
+                    </ComboBoxItem>
+                    <ComboBoxItem Tag="Window" ToolTip="Window select (W)">
+                        <wpfui:SymbolIcon FontSize="22" Symbol="WindowMultiple20" />
+                    </ComboBoxItem>
+                    <ComboBoxItem Tag="Freeform" ToolTip="Draw freeform shape (D)">
+                        <wpfui:SymbolIcon FontSize="22" Symbol="DrawShape24" />
+                    </ComboBoxItem>
+                    <ComboBoxItem Tag="AdjustAfter" ToolTip="Adjust after (A)">
+                        <wpfui:SymbolIcon FontSize="22" Symbol="SelectObject24" />
+                    </ComboBoxItem>
+                </ComboBox>
+                <ComboBox
+                    x:Name="LanguagesComboBox"
+                    Height="34"
+                    Margin="0"
+                    Padding="8,0"
+                    Foreground="{wpfui:ThemeResource TextFillColorPrimaryBrush}"
+                    PreviewMouseDown="LanguagesComboBox_PreviewMouseDown"
+                    SelectionChanged="LanguagesComboBox_SelectionChanged">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                FontFamily="Segoe UI"
+                                Style="{StaticResource SymbolTextStyle}"
+                                Text="{Binding DisplayName}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <ToggleButton
+                    x:Name="FreezeToggleButton"
+                    Width="34"
+                    Height="34"
+                    Margin="4,0,2,0"
+                    Click="FreezeMenuItem_Click"
+                    IsChecked="{Binding IsChecked, ElementName=FreezeMenuItem, Mode=TwoWay}"
+                    Style="{StaticResource ToggleSymbolButton}"
+                    ToolTip="(F) Freeze what is on screens">
+                    <wpfui:SymbolIcon Symbol="Pause24" />
+                </ToggleButton>
+                <Border
+                    x:Name="ModeButtonsBorder"
+                    Margin="2,0"
+                    BorderBrush="{StaticResource Teal}"
+                    BorderThickness="2"
+                    CornerRadius="5">
+                    <StackPanel Orientation="Horizontal">
+                        <ToggleButton
+                            x:Name="StandardModeToggleButton"
+                            Width="30"
+                            Height="30"
+                            Margin="0"
+                            Click="StandardModeToggleButton_Click"
+                            IsChecked="True"
+                            Style="{StaticResource ToggleSymbolButton}"
+                            ToolTip="(N) Normal Multi-line OCR Mode">
+                            <wpfui:SymbolIcon Symbol="TextAlignLeft24" />
+                        </ToggleButton>
+                        <ToggleButton
+                            x:Name="SingleLineToggleButton"
+                            Width="30"
+                            Height="30"
+                            Margin="0"
+                            d:IsChecked="True"
+                            Click="SingleLineMenuItem_Click"
+                            IsChecked="{Binding IsChecked, ElementName=SingleLineMenuItem, Mode=TwoWay}"
+                            Style="{StaticResource ToggleSymbolButton}"
+                            ToolTip="(S) Make result a single line">
+                            <wpfui:SymbolIcon Symbol="SubtractSquare24" />
+                        </ToggleButton>
+                        <ToggleButton
+                            x:Name="TableToggleButton"
+                            Width="30"
+                            Height="30"
+                            Margin="0"
+                            d:IsChecked="True"
+                            Click="TableToggleButton_Click"
+                            IsChecked="{Binding IsChecked, ElementName=TableMenuItem, Mode=TwoWay}"
+                            Style="{StaticResource ToggleSymbolButton}"
+                            ToolTip="(T) OCR text as a table">
+                            <wpfui:SymbolIcon Symbol="Table24" />
+                        </ToggleButton>
+                        <ToggleButton
+                            x:Name="NewGrabFrameToggleButton"
+                            Width="30"
+                            Height="30"
+                            Margin="0"
+                            d:IsChecked="True"
+                            Click="NewGrabFrameMenuItem_Click"
+                            IsChecked="{Binding IsChecked, ElementName=NewGrabFrameMenuItem, Mode=TwoWay}"
+                            Style="{StaticResource ToggleSymbolButton}"
+                            ToolTip="(G) Place a Grab Frame">
+                            <wpfui:SymbolIcon Symbol="PanelBottom20" />
+                        </ToggleButton>
+                    </StackPanel>
+                </Border>
+                <wpfui:DropDownButton
+                    x:Name="NextStepDropDownButton"
+                    Height="34"
+                    Margin="2,0"
+                    IsDefault="True"
+                    ToolTip="Actions to perform after grabbing text...">
+                    <wpfui:DropDownButton.Icon>
+                        <wpfui:SymbolIcon Symbol="FlashFlow24" />
+                    </wpfui:DropDownButton.Icon>
+                    <wpfui:DropDownButton.Flyout>
+                        <ContextMenu
+                            MouseEnter="RegionClickCanvas_MouseEnter"
+                            MouseLeave="RegionClickCanvas_MouseLeave"
+                            PreviewKeyDown="FullscreenGrab_KeyDown">
+                            <!--<MenuItem
+                                Name="GuidFixMenuItem"
+                                Click="PostActionMenuItem_Click"
+                                Header="Fix GUIDs"
+                                InputGestureText="CTRL + 1"
+                                IsCheckable="True"
+                                StaysOpenOnClick="False"
+                                ToolTip="Corrects common errors with hex (0-F) when OCRing UUID/GUIDs" />
+                            <MenuItem
+                                Name="TrimEachLineMenuItem"
+                                Click="PostActionMenuItem_Click"
+                                Header="Trim each line"
+                                InputGestureText="CTRL + 2"
+                                IsCheckable="True"
+                                StaysOpenOnClick="False"
+                                ToolTip="Remove empty space characters from the beginning and end of each line" />
+                            <MenuItem
+                                Name="RemoveDuplicatesMenuItem"
+                                Click="PostActionMenuItem_Click"
+                                Header="Remove duplicate lines"
+                                InputGestureText="CTRL + 3"
+                                IsCheckable="True"
+                                StaysOpenOnClick="False"
+                                ToolTip="Remove duplicate lines, keeping the first instance" />
+                            <MenuItem
+                                Name="WebSearchPostCapture"
+                                Click="PostActionMenuItem_Click"
+                                Header="Web Search"
+                                InputGestureText="CTRL + 4"
+                                IsCheckable="True"
+                                StaysOpenOnClick="False"
+                                ToolTip="Search the web using the default web search engine" />
+                            <MenuItem
+                                Name="InsertPostCapture"
+                                Click="PostActionMenuItem_Click"
+                                Header="Try to insert text"
+                                InputGestureText="CTRL + 5"
+                                IsCheckable="True"
+                                StaysOpenOnClick="False"
+                                ToolTip="Try to insert the copied text into the current caret position" />
+                            <MenuItem
+                                Name="TranslatePostCapture"
+                                Click="PostActionMenuItem_Click"
+                                Header="Translate to system language"
+                                InputGestureText="CTRL + 6"
+                                IsCheckable="True"
+                                StaysOpenOnClick="False"
+                                ToolTip="Translate the grabbed text to your system language using Windows AI"
+                                Visibility="Collapsed" />-->
+                        </ContextMenu>
+                    </wpfui:DropDownButton.Flyout>
+                </wpfui:DropDownButton>
+                <Button
+                    x:Name="AcceptSelectionButton"
+                    Width="44"
+                    Height="34"
+                    Margin="2,0"
+                    Click="AcceptSelectionButton_Click"
+                    Content="OK"
+                    ToolTip="(Enter) Accept selection"
+                    Visibility="Collapsed" />
+                <ToggleButton
+                    x:Name="SendToEditTextToggleButton"
+                    Width="34"
+                    Height="34"
+                    Margin="2,0"
+                    d:IsChecked="True"
+                    Click="SendToEditTextToggleButton_Click"
+                    IsChecked="{Binding IsChecked, ElementName=SendToEtwMenuItem, Mode=TwoWay}"
+                    Style="{StaticResource ToggleSymbolButton}"
+                    ToolTip="(E) Send to an Edit Text Window">
+                    <wpfui:SymbolIcon Symbol="Window24" />
+                </ToggleButton>
+                <Button
+                    x:Name="SettingsButton"
+                    Width="34"
+                    Height="34"
+                    Margin="2,0"
+                    Click="SettingsMenuItem_Click"
+                    Style="{StaticResource SymbolButton}"
+                    ToolTip="Settings">
+                    <wpfui:SymbolIcon Symbol="Settings24" />
+                </Button>
+                <Button
+                    x:Name="CancelButton"
+                    Width="34"
+                    Height="34"
+                    Margin="2,0,0,0"
+                    Click="CancelMenuItem_Click"
+                    Style="{StaticResource SymbolButton}"
+                    ToolTip="(Esc) Cancel">
+                    <wpfui:SymbolIcon Symbol="Dismiss24" />
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

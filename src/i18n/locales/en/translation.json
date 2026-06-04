@@ -14,6 +14,7 @@
     "commands": "Commands",
     "advanced": "Advanced",
     "postProcessing": "Post Process",
+    "clipboard": "Clipboard",
     "history": "History",
     "debug": "Debug",
     "about": "About"
@@ -625,5 +626,40 @@
       "sendMessage": "Send Message",
       "runScript": "Run Script"
     }
+  },
+  "clipboard": {
+    "title": "Clipboard",
+    "searchPlaceholder": "Search clips...",
+    "ocrGrab": "Snap Region (OCR)",
+    "ocrGrabbing": "Select a region to OCR...",
+    "autoTrack": "Auto-Track Clipboard",
+    "autoTrackDescription": "Automatically save anything you copy (Ctrl+C) to this list.",
+    "startAutoTrack": "Start Auto-Track",
+    "stopAutoTrack": "Stop Auto-Track",
+    "clearAll": "Clear All",
+    "clearAllConfirm": "Delete all clipboard entries? This cannot be undone.",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "copyToClipboard": "Copy to clipboard",
+    "star": "Favorite",
+    "unstar": "Remove from favorites",
+    "delete": "Delete entry",
+    "loading": "Loading clipboard...",
+    "empty": "No clipboard entries yet. Copy some text or use Snap Region (OCR) to get started!",
+    "source": {
+      "ocr": "OCR",
+      "voice": "Voice",
+      "manual": "Manual",
+      "clipboard": "Clipboard"
+    },
+    "filter": {
+      "all": "All",
+      "favorites": "Favorites"
+    },
+    "noteAdd": "+ Add note",
+    "notePlaceholder": "Why did you save this?",
+    "noteEdit": "Edit note",
+    "noteDelete": "Delete note"
   }
 }

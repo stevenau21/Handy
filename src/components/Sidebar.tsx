@@ -1,10 +1,11 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, History, Info, Sparkles, Cpu, Mic } from "lucide-react";
+import { Clipboard, Cog, FlaskConical, History, Info, Sparkles, Cpu, Mic } from "lucide-react";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
 import { useSettings } from "../hooks/useSettings";
 import {
+  ClipboardSettings,
   GeneralSettings,
   AdvancedSettings,
   HistorySettings,
@@ -55,6 +56,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.advanced",
     icon: Cog,
     component: AdvancedSettings,
+    enabled: () => true,
+  },
+  clipboard: {
+    labelKey: "sidebar.clipboard",
+    icon: Clipboard,
+    component: ClipboardSettings,
     enabled: () => true,
   },
   history: {

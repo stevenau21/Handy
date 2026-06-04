@@ -10,6 +10,7 @@ mod helpers;
 mod input;
 mod llm_client;
 mod managers;
+mod ocr;
 mod overlay;
 pub mod portable;
 mod settings;
@@ -27,6 +28,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
+use managers::clipboard::ClipboardManager;
 use managers::history::HistoryManager;
 use managers::model::ModelManager;
 use managers::transcription::TranscriptionManager;
@@ -164,6 +166,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
+
+    // Initialize clipboard manager
+    let clipboard_manager = Arc::new(
+        ClipboardManager::new(app_handle).expect("Failed to initialize clipboard manager"),
+    );
+    app_handle.manage(clipboard_manager.clone());
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -430,9 +438,23 @@ pub fn run(cli_args: CliArgs) {
             commands::history::retry_history_entry_transcription,
             commands::history::update_history_limit,
             commands::history::update_recording_retention_period,
+            commands::clipboard::get_clipboard_entries,
+            commands::clipboard::add_clipboard_entry,
+            commands::clipboard::edit_clipboard_entry,
+            commands::clipboard::set_clipboard_entry_note,
+            commands::clipboard::toggle_clipboard_entry_saved,
+            commands::clipboard::delete_clipboard_entry,
+            commands::clipboard::clear_all_clipboard_entries,
+            commands::clipboard::copy_to_clipboard,
+            commands::clipboard::ocr_grab_screen,
+            commands::clipboard::start_clipboard_auto_track,
+            commands::clipboard::stop_clipboard_auto_track,
             helpers::clamshell::is_laptop,
         ])
-        .events(collect_events![managers::history::HistoryUpdatePayload,]);
+        .events(collect_events![
+            managers::history::HistoryUpdatePayload,
+            managers::clipboard::ClipboardUpdatePayload,
+        ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
     specta_builder

@@ -1,0 +1,123 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+        <WindowsSdkPackageVersion>10.0.22621.48</WindowsSdkPackageVersion>
+        <RootNamespace>Text_Grab</RootNamespace>
+        <Nullable>enable</Nullable>
+        <UseWPF>true</UseWPF>
+        <UseWindowsForms>true</UseWindowsForms>
+        <ApplicationIcon>TealSelect.ico</ApplicationIcon>
+        <StartupObject>Text_Grab.App</StartupObject>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
+        <Platforms>x64;x86;ARM64</Platforms>
+        <Copyright>Joseph Finney 2025</Copyright>
+        <PackageProjectUrl>TextGrab.net</PackageProjectUrl>
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/TheJoeFin/Text-Grab</RepositoryUrl>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageIcon>SmallTile.scale-125.png</PackageIcon>
+        <SupportedOSPlatformVersion>10.0.22621.0</SupportedOSPlatformVersion>
+        <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+        <EnableMsixTooling>false</EnableMsixTooling>
+        <Version>4.13.2</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Remove="Images\CJKE-SampleText.png" />
+        <None Remove="Images\ETW.png" />
+        <None Remove="Images\FSG.png" />
+        <None Remove="Images\GF.png" />
+        <None Remove="Images\QSL.png" />
+        <None Remove="Images\TealSelect40.png" />
+        <None Remove="Images\Text-Grab-Icon.png" />
+        <None Remove="Images\Toast.png" />
+        <None Remove="Images\t_32.png" />
+        <None Remove="Images\WinSym.png" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\README.md">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+        <None Include="..\Text-Grab-Package\Images\SmallTile.scale-125.png">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="CliWrap" Version="3.10.1" />
+        <PackageReference Include="Dapplo.Windows.User32" Version="2.0.89" />
+        <PackageReference Include="Humanizer.Core" Version="3.0.10" />
+        <PackageReference Include="Magick.NET-Q16-AnyCPU" Version="14.11.1" />
+        <PackageReference Include="Magick.NET.SystemDrawing" Version="8.0.19" />
+        <PackageReference Include="Magick.NET.SystemWindowsMedia" Version="8.0.19" />
+        <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
+        <PackageReference Include="Microsoft.WindowsAppSDK.AI" Version="1.8.53" />
+        <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="1.8.260222000" />
+        <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260317003" />
+        <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260224000" />
+        <PackageReference Include="NCalcAsync" Version="5.12.0" />
+        <PackageReference Include="UnitsNet" Version="5.75.0" />
+        <PackageReference Include="WPF-UI" Version="4.2.0" />
+        <PackageReference Include="WPF-UI.Tray" Version="4.2.0" />
+        <PackageReference Include="ZXing.Net" Version="0.16.11" />
+        <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.14" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Content Include="Images\CJKE-SampleText.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\ETW.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\FSG.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\GF.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\QSL.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\TealSelect40.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\Text-Grab-Icon.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\Toast.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\t_32.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Images\WinSym.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Resource Include="Styles\ButtonStyles.xaml">
+            <Generator>MSBuild:Compile</Generator>
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Resource>
+        <Resource Include="TealSelect.ico" />
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Update="Properties\Settings.Designer.cs">
+            <DesignTimeSharedInput>True</DesignTimeSharedInput>
+            <AutoGen>True</AutoGen>
+            <DependentUpon>Settings.settings</DependentUpon>
+        </Compile>
+    </ItemGroup>
+    <ItemGroup>
+        <None Update="Properties\Settings.settings">
+            <Generator>SettingsSingleFileGenerator</Generator>
+            <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+        </None>
+    </ItemGroup>
+</Project>

@@ -1,0 +1,3 @@
+[2026-06-04][05:53:21][handy_app_lib::managers::history][INFO] Initializing database at "C:\\Users\\steve\\AppData\\Roaming\\com.pais.handy\\history.db"
+[2026-06-04][05:53:21][handy_app_lib::managers::transcription][INFO] Whisper accelerator set to: auto, gpu_device: auto
+[2026-06-04][05:53:21][handy_app_lib::managers::transcription][INFO] ORT accelerator set to: auto

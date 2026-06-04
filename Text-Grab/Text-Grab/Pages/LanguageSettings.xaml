@@ -1,0 +1,227 @@
+﻿<Page
+    x:Class="Text_Grab.Pages.LanguageSettings"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="clr-namespace:Text_Grab.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="LanguageSettings"
+    d:DesignHeight="450"
+    d:DesignWidth="800"
+    Loaded="Page_Loaded"
+    mc:Ignorable="d">
+
+    <StackPanel Margin="20,12,40,40" Orientation="Vertical">
+        <TextBlock Style="{StaticResource TextHeader}" Text="Language Settings" />
+        <TextBlock
+            Margin="0,12,0,2"
+            FontSize="18"
+            FontWeight="Bold"
+            Style="{StaticResource TextBodyNormal}"
+            Text="Windows AI OCR" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+                Name="StatusTextBlock"
+                Margin="0,2,6,0"
+                FontWeight="Black"
+                Style="{StaticResource TextBodyNormal}"
+                Text="STATUS" />
+            <TextBlock
+                Name="ReasonTextBlock"
+                Grid.Column="1"
+                Margin="0,2,6,0"
+                FontStyle="Italic"
+                Style="{StaticResource TextBodyNormal}"
+                Text="Reason"
+                TextWrapping="Wrap" />
+        </Grid>
+        <ui:HyperlinkButton
+            Name="StoreLink"
+            Click="HyperlinkButton_Click"
+            Content="Such as Text Grab in the Microsoft Store"
+            NavigateUri="https://www.microsoft.com/en-us/p/text-grab/9mznkqj7sl0b?cid=WindowsAICheck"
+            Visibility="Collapsed" />
+        <TextBlock
+            Margin="0,12,0,6"
+            Style="{StaticResource TextBodyNormal}"
+            TextWrapping="Wrap">
+            Windows AI OCR is a new state-of-the-art OCR engine first introduced on Copilot+ PCs. It supports a wide range of styles and languages, as well as being more accurate.
+        </TextBlock>
+        <ui:HyperlinkButton
+            Click="HyperlinkButton_Click"
+            Content="Learn more about Windows AI Foundry"
+            NavigateUri="https://learn.microsoft.com/en-us/windows/ai/apis/" />
+
+        <TextBlock
+            Margin="0,24,0,6"
+            FontSize="18"
+            FontWeight="Bold"
+            Style="{StaticResource TextBodyNormal}"
+            Text="Windows Installed Languages" />
+        <!--  auto pull and parse which Windows Languages are installed  -->
+        <ui:HyperlinkButton
+            Click="HyperlinkButton_Click"
+            Content="How to install OCR languages with PowerShell"
+            NavigateUri="https://learn.microsoft.com/en-us/windows/powertoys/text-extractor#how-to-query-for-ocr-language-packs" />
+        <!--  Show the commands to execute to add other languages  -->
+        <ui:ListView
+            x:Name="WindowsLanguagesListView"
+            MaxWidth="600"
+            HorizontalAlignment="Left">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Grid>
+                        <TextBlock Margin="4,2" Text="{Binding DisplayName}" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ui:ListView>
+        <StackPanel
+            x:Name="TesseractLanguagesStackPanel"
+            d:Visibility="Visible"
+            Orientation="Vertical"
+            Visibility="Collapsed">
+            <TextBlock
+                Margin="0,24,0,6"
+                FontSize="18"
+                FontWeight="Bold"
+                Style="{StaticResource TextBodyNormal}"
+                Text="Tesseract Languages" />
+            <!--  auto pull and parse which Tesseract Languages are installed  -->
+            <!--  if Tesseract wasn't found, don't show these options  -->
+            <!--  Link to the GitHub Repo to download other languages  -->
+            <ui:HyperlinkButton
+                x:Name="OpenPathButton"
+                HorizontalAlignment="Left"
+                Click="OpenPathButton_Click">
+                <StackPanel Margin="4,0" Orientation="Horizontal">
+                    <ui:SymbolIcon Margin="0,0,6,0" Symbol="OpenFolder24" />
+                    <TextBlock Text="Open Tesseract Language Data Folder" />
+                </StackPanel>
+            </ui:HyperlinkButton>
+            <ui:ListView
+                x:Name="TesseractLanguagesListView"
+                MaxWidth="600"
+                HorizontalAlignment="Left">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <TextBlock Margin="4,2" Text="{Binding}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ui:ListView>
+
+            <TextBlock Margin="0,20,0,0" Style="{StaticResource TextBodyNormal}">
+                Download and install languages from Tesseract GitHub<LineBreak />
+                <Hyperlink NavigateUri="https://github.com/tesseract-ocr/tessdata" RequestNavigate="Hyperlink_RequestNavigate">https://github.com/tesseract-ocr/tessdata</Hyperlink>
+            </TextBlock>
+            <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                <ComboBox
+                    x:Name="AllLanguagesComboBox"
+                    Width="300"
+                    IsEditable="True"
+                    IsTextSearchCaseSensitive="False"
+                    IsTextSearchEnabled="True">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Margin="12,0,0,0" Click="InstallButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Shield24" />
+                        <TextBlock Margin="6,0,0,0" Text="Install" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <TextBlock
+                x:Name="ErrorsAndOutputText"
+                FontFamily="Cascadia Code"
+                Style="{StaticResource TextBodyNormal}" />
+        </StackPanel>
+        <TextBlock
+            Margin="0,24,0,6"
+            FontSize="18"
+            FontWeight="Bold"
+            Style="{StaticResource TextBodyNormal}"
+            Text="Direct Text (Beta)" />
+        <TextBlock
+            Margin="0,0,0,8"
+            Style="{StaticResource TextBodyNormal}"
+            TextWrapping="Wrap">
+            When the Direct Text (Beta) language is selected, Text Grab will try to read native accessibility text from live application controls before falling back to OCR.
+        </TextBlock>
+        <Border
+            Margin="0,0,0,10"
+            Padding="12"
+            Background="#14FFA500"
+            BorderBrush="DarkOrange"
+            BorderThickness="1"
+            CornerRadius="6">
+            <TextBlock
+                Style="{StaticResource TextBodyNormal}"
+                Text="Beta feature: Direct Text captures live accessibility text instead of performing normal OCR. It is off by default in this release and should be enabled only when you want to test this experimental path."
+                TextWrapping="Wrap" />
+        </Border>
+        <ui:ToggleSwitch
+            x:Name="UiAutomationEnabledToggle"
+            Checked="UiAutomationEnabledToggle_Checked"
+            Unchecked="UiAutomationEnabledToggle_Checked">
+            <TextBlock Style="{StaticResource TextBodyNormal}">
+                Show Direct Text (Beta) as a language option
+            </TextBlock>
+        </ui:ToggleSwitch>
+        <StackPanel x:Name="UiAutomationAdvancedOptionsPanel">
+            <ui:ToggleSwitch
+                x:Name="UiAutomationFallbackToggle"
+                Margin="0,8,0,0"
+                Checked="UiAutomationFallbackToggle_Checked"
+                Unchecked="UiAutomationFallbackToggle_Checked">
+                <TextBlock Style="{StaticResource TextBodyNormal}">
+                    Fall back to OCR when UI Automation returns no text
+                </TextBlock>
+            </ui:ToggleSwitch>
+            <ui:ToggleSwitch
+                x:Name="UiAutomationPreferFocusedToggle"
+                Margin="0,8,0,0"
+                Checked="UiAutomationPreferFocusedToggle_Checked"
+                Unchecked="UiAutomationPreferFocusedToggle_Checked">
+                <TextBlock Style="{StaticResource TextBodyNormal}">
+                    Prefer the focused UI element before scanning the rest of the window
+                </TextBlock>
+            </ui:ToggleSwitch>
+            <ui:ToggleSwitch
+                x:Name="UiAutomationIncludeOffscreenToggle"
+                Margin="0,8,0,0"
+                Checked="UiAutomationIncludeOffscreenToggle_Checked"
+                Unchecked="UiAutomationIncludeOffscreenToggle_Checked">
+                <TextBlock Style="{StaticResource TextBodyNormal}">
+                    Include offscreen Direct Text elements
+                </TextBlock>
+            </ui:ToggleSwitch>
+            <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
+                <TextBlock
+                    Margin="0,0,12,0"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource TextBodyNormal}"
+                    Text="Traversal mode" />
+                <ComboBox
+                    x:Name="UiAutomationTraversalModeComboBox"
+                    Width="180"
+                    SelectionChanged="UiAutomationTraversalModeComboBox_SelectionChanged" />
+            </StackPanel>
+            <TextBlock
+                Margin="0,4,0,0"
+                Style="{StaticResource TextBodyNormal}"
+                Text="Fast focuses on the closest useful elements, Balanced scans the visible subtree, and Thorough walks deeper through the automation tree."
+                TextWrapping="Wrap" />
+        </StackPanel>
+    </StackPanel>
+</Page>

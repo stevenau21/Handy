@@ -1,0 +1,139 @@
+﻿<Page
+    x:Class="Text_Grab.Pages.DangerSettings"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:Text_Grab.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="clr-namespace:Text_Grab.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+    Title="DangerSettings"
+    d:DesignHeight="450"
+    d:DesignWidth="800"
+    Loaded="Page_Loaded"
+    mc:Ignorable="d">
+
+    <StackPanel Margin="20,12,40,40" Orientation="Vertical">
+        <TextBlock Style="{StaticResource TextHeader}" Text="Dangerous Options" />
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Shutdown Text Grab.
+        </TextBlock>
+        <controls:CollapsibleButton
+            x:Name="ShutdownButton"
+            HorizontalAlignment="Left"
+            ButtonText="Shutdown Text Grab"
+            Click="ShutdownButton_Click" />
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Reset Tray icon.
+        </TextBlock>
+        <controls:CollapsibleButton
+            x:Name="RetrySettingTrayButton"
+            HorizontalAlignment="Left"
+            ButtonSymbol="TrayItemAdd24"
+            ButtonText="Reset Tray Icon"
+            Click="RetrySettingTrayButton_Click" />
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Generate bug report with app diagnostic information.
+        </TextBlock>
+        <controls:CollapsibleButton
+            x:Name="ExportBugReportButton"
+            HorizontalAlignment="Left"
+            ButtonSymbol="Bug24"
+            ButtonText="Export Bug Report"
+            Click="ExportBugReportButton_Click" />
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Export all settings and optionally history to a portable ZIP file.
+        </TextBlock>
+        <CheckBox
+            x:Name="IncludeHistoryCheckBox"
+            Margin="5,8,0,0"
+            Content="Include history (images and text)"
+            IsChecked="True" />
+        <controls:CollapsibleButton
+            x:Name="ExportSettingsButton"
+            HorizontalAlignment="Left"
+            ButtonSymbol="FolderZip24"
+            ButtonText="Export Settings"
+            Click="ExportSettingsButton_Click" />
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Import settings and history from a previously exported ZIP file.
+        </TextBlock>
+        <controls:CollapsibleButton
+            x:Name="ImportSettingsButton"
+            HorizontalAlignment="Left"
+            ButtonSymbol="ArrowImport24"
+            ButtonText="Import Settings"
+            Click="ImportSettingsButton_Click" />
+
+        <Border
+            Margin="0,20,0,0"
+            Padding="12"
+            Background="#14FFA500"
+            BorderBrush="DarkOrange"
+            BorderThickness="1"
+            CornerRadius="6">
+            <StackPanel>
+                <TextBlock
+                    FontWeight="Bold"
+                    Style="{StaticResource TextBodyNormal}"
+                    Text="Experimental file-backed settings storage" />
+                <TextBlock
+                    Margin="0,6,0,0"
+                    Style="{StaticResource TextBodyNormal}"
+                    TextWrapping="Wrap">
+                    <Run Text="This transition feature keeps a second file-backed copy of large settings and can reduce Text Grab's RAM usage by moving large settings payloads out of the main settings store. It is off by default for rollback safety." />
+                    <LineBreak />
+                    <Hyperlink Click="BackupSettingsHyperlink_Click">Backup your settings</Hyperlink>
+                    <Run Text=" before enabling it, then restart Text Grab. The restart applies the new storage preference on launch so Text Grab can keep the legacy strings and the file-backed copies in sync." />
+                </TextBlock>
+                <ui:ToggleSwitch
+                    x:Name="EnableFileBackedManagedSettingsToggle"
+                    Margin="0,10,0,0"
+                    Checked="EnableFileBackedManagedSettingsToggle_Checked"
+                    Unchecked="EnableFileBackedManagedSettingsToggle_Checked">
+                    <TextBlock Style="{StaticResource TextBodyNormal}">
+                        Enable experimental file-backed settings storage (restart required)
+                    </TextBlock>
+                </ui:ToggleSwitch>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Check CPU Architecture before enabling Windows Local AI model features
+        </TextBlock>
+        <ui:ToggleSwitch
+            x:Name="OverrideArchCheckWinAI"
+            HorizontalAlignment="Left"
+            Click="OverrideArchCheckWinAI_Click"
+            OffContent="ARM CPU only"
+            OnContent="No CPU Arch is checked" />
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Reset All settings to default settings.
+        </TextBlock>
+        <controls:CollapsibleButton
+            x:Name="ResetSettingsButton"
+            HorizontalAlignment="Left"
+            Background="DarkRed"
+            ButtonSymbol="ArrowCounterclockwise24"
+            ButtonText="Reset All Settings"
+            Click="ResetSettingsButton_Click" />
+
+        <TextBlock Margin="0,12,0,0" Style="{StaticResource TextBodyNormal}">
+            Delete all history items.
+        </TextBlock>
+        <!--  Add how many history items exist to be deleted  -->
+        <controls:CollapsibleButton
+            x:Name="ClearHistoryButton"
+            HorizontalAlignment="Left"
+            Background="DarkRed"
+            ButtonSymbol="Delete24"
+            ButtonText="Clear History"
+            Click="ClearHistoryButton_Click" />
+    </StackPanel>
+</Page>

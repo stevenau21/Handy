@@ -1,0 +1,238 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Threading.Tasks;
+using System.Windows;
+using Text_Grab.Interfaces;
+using Text_Grab.Models;
+using Wpf.Ui.Controls;
+
+namespace Text_Grab.Utilities;
+
+public class PostGrabActionManager
+{
+    /// <summary>
+    /// Gets all available post-grab actions from ButtonInfo.AllButtons filtered for FullscreenGrab relevance.
+    /// Also includes a ButtonInfo for each saved Grab Template.
+    /// </summary>
+    public static List<ButtonInfo> GetAvailablePostGrabActions()
+    {
+        List<ButtonInfo> allPostGrabActions = [.. GetDefaultPostGrabActions()];
+
+        // Add other relevant actions from AllButtons that are marked as relevant for FullscreenGrab
+        IEnumerable<ButtonInfo> relevantActions = ButtonInfo.AllButtons
+            .Where(button => button.IsRelevantForFullscreenGrab && !allPostGrabActions.Any(b => b.ButtonText == button.ButtonText));
+
+        allPostGrabActions.AddRange(relevantActions);
+
+        // Add a ButtonInfo for each saved Grab Template
+        List<GrabTemplate> templates = GrabTemplateManager.GetAllTemplates();
+        foreach (GrabTemplate template in templates)
+        {
+            ButtonInfo templateAction = GrabTemplateManager.CreateButtonInfoForTemplate(template);
+            // Avoid duplicates if it's somehow already in the list
+            if (!allPostGrabActions.Any(b => b.TemplateId == template.Id))
+                allPostGrabActions.Add(templateAction);
+        }
+
+        return [.. allPostGrabActions.OrderBy(b => b.OrderNumber)];
+    }
+
+    /// <summary>
+    /// Gets the default post-grab actions (the current 6 hardcoded actions)
+    /// </summary>
+    public static List<ButtonInfo> GetDefaultPostGrabActions()
+    {
+        return
+        [
+            new ButtonInfo(
+                buttonText: "Fix GUIDs",
+                clickEvent: "CorrectGuid_Click",
+                symbolIcon: SymbolRegular.Braces24,
+                defaultCheckState: DefaultCheckState.Off
+            )
+            {
+                OrderNumber = 6.1
+            },
+            new ButtonInfo(
+                buttonText: "Trim each line",
+                clickEvent: "TrimEachLine_Click",
+                symbolIcon: SymbolRegular.TextCollapse24,
+                defaultCheckState: DefaultCheckState.Off
+            )
+            {
+                OrderNumber = 6.2
+            },
+            new ButtonInfo(
+                buttonText: "Remove duplicate lines",
+                clickEvent: "RemoveDuplicateLines_Click",
+                symbolIcon: SymbolRegular.MultiselectLtr24,
+                defaultCheckState: DefaultCheckState.Off
+            )
+            {
+                OrderNumber = 6.3
+            },
+            new ButtonInfo(
+                buttonText: "Web Search",
+                clickEvent: "WebSearch_Click",
+                symbolIcon: SymbolRegular.GlobeSearch24,
+                defaultCheckState: DefaultCheckState.Off
+            )
+            {
+                OrderNumber = 6.4
+            },
+            new ButtonInfo(
+                buttonText: "Try to insert text",
+                clickEvent: "Insert_Click",
+                symbolIcon: SymbolRegular.ClipboardTaskAdd24,
+                defaultCheckState: DefaultCheckState.Off
+            )
+            {
+                OrderNumber = 6.5
+            }
+            //,
+            //new ButtonInfo(
+            //    buttonText: "Translate to system language",
+            //    clickEvent: "Translate_Click",
+            //    symbolIcon: SymbolRegular.LocalLanguage24,
+            //    defaultCheckState: DefaultCheckState.Off
+            //)
+            //{
+            //    OrderNumber = 6.6
+            //}
+        ];
+    }
+
+    /// <summary>
+    /// Gets the enabled post-grab actions from settings
+    /// </summary>
+    public static List<ButtonInfo> GetEnabledPostGrabActions()
+    {
+        List<ButtonInfo> customActions = AppUtilities.TextGrabSettingsService.LoadPostGrabActions();
+        if (customActions.Count == 0)
+            return GetDefaultPostGrabActions();
+
+        return customActions;
+    }
+
+    /// <summary>
+    /// Saves the list of post-grab actions to settings
+    /// </summary>
+    public static void SavePostGrabActions(List<ButtonInfo> actions)
+    {
+        AppUtilities.TextGrabSettingsService.SavePostGrabActions(actions);
+    }
+
+    /// <summary>
+    /// Gets the check state for a specific action (On/LastUsed/Off)
+    /// </summary>
+    public static bool GetCheckState(ButtonInfo action)
+    {
+        // First check if there's a stored check state from last usage
+        Dictionary<string, bool> checkStates = AppUtilities.TextGrabSettingsService.LoadPostGrabCheckStates();
+        if (checkStates.Count > 0
+            && checkStates.TryGetValue(action.ButtonText, out bool storedState)
+            && action.DefaultCheckState == DefaultCheckState.LastUsed)
+        {
+            // If the action is set to LastUsed, use the stored state
+            return storedState;
+        }
+
+        // Otherwise use the default check state
+        return action.DefaultCheckState == DefaultCheckState.On;
+    }
+
+    /// <summary>
+    /// Saves the check state for an action (used for LastUsed tracking)
+    /// </summary>
+    public static void SaveCheckState(ButtonInfo action, bool isChecked)
+    {
+        Dictionary<string, bool> checkStates = AppUtilities.TextGrabSettingsService.LoadPostGrabCheckStates();
+        checkStates[action.ButtonText] = isChecked;
+        AppUtilities.TextGrabSettingsService.SavePostGrabCheckStates(checkStates);
+    }
+
+    /// <summary>
+    /// Executes a post-grab action on the given text
+    /// </summary>
+    public static async Task<string> ExecutePostGrabAction(ButtonInfo action, string text)
+    {
+        return await ExecutePostGrabAction(action, PostGrabContext.TextOnly(text));
+    }
+
+    /// <summary>
+    /// Executes a post-grab action using the full <see cref="PostGrabContext"/>.
+    /// Template actions use the context's CaptureRegion and DpiScale to re-OCR sub-regions.
+    /// </summary>
+    public static async Task<string> ExecutePostGrabAction(ButtonInfo action, PostGrabContext context)
+    {
+        string text = context.Text;
+        string result = text;
+
+        switch (action.ClickEvent)
+        {
+            case "CorrectGuid_Click":
+                result = text.CorrectCommonGuidErrors();
+                break;
+
+            case "TrimEachLine_Click":
+                string[] stringSplit = text.Split(Environment.NewLine);
+                string[] trimmedLines = stringSplit
+                    .Where(line => !string.IsNullOrWhiteSpace(line))
+                    .Select(line => line.Trim())
+                    .ToArray();
+
+                result = trimmedLines.Length == 0
+                    ? string.Empty
+                    : string.Join(Environment.NewLine, trimmedLines) + Environment.NewLine;
+                break;
+
+            case "RemoveDuplicateLines_Click":
+                result = text.RemoveDuplicateLines();
+                break;
+
+            case "WebSearch_Click":
+                string searchStringUrlSafe = WebUtility.UrlEncode(text);
+                WebSearchUrlModel searcher = Singleton<WebSearchUrlModel>.Instance.DefaultSearcher;
+                Uri searchUri = new($"{searcher.Url}{searchStringUrlSafe}");
+                _ = await Windows.System.Launcher.LaunchUriAsync(searchUri);
+                // Don't modify the text for web search
+                break;
+
+            case "Insert_Click":
+                // This will be handled separately in FullscreenGrab after closing
+                // Don't modify the text
+                break;
+
+            case "Translate_Click":
+                if (WindowsAiUtilities.CanDeviceUseWinAI())
+                {
+                    string systemLanguage = LanguageUtilities.GetSystemLanguageForTranslation();
+                    result = await WindowsAiUtilities.TranslateText(text, systemLanguage);
+                }
+                break;
+
+            case "ApplyTemplate_Click":
+                if (!string.IsNullOrWhiteSpace(action.TemplateId)
+                    && context.CaptureRegion != Rect.Empty)
+                {
+                    GrabTemplate? template = GrabTemplateManager.GetTemplateById(action.TemplateId);
+                    if (template is not null)
+                    {
+                        result = await GrabTemplateExecutor.ExecuteTemplateAsync(
+                            template, context.CaptureRegion, context.Language);
+                        GrabTemplateManager.RecordUsage(action.TemplateId);
+                    }
+                }
+                // If no capture region (e.g. called from EditTextWindow), skip template
+                break;
+
+            default:
+                // Unknown action - return text unchanged
+                break;
+        }
+
+        return result;
+    }
+}
