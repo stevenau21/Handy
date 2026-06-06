@@ -20,7 +20,13 @@ $img.Dispose()
 Write-Output $tempFile
 "#;
 
-    let output = std::process::Command::new("powershell")
+    let mut command = std::process::Command::new("powershell");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = command
         .args(["-Sta", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", save_script])
         .output()
         .map_err(|e| anyhow!("Failed to save clipboard image: {}", e))?;

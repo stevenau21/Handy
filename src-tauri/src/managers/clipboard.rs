@@ -4,6 +4,7 @@ use log::{debug, info};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,19 +52,30 @@ pub struct ClipboardEntry {
     pub timestamp: i64, pub saved: bool, pub source: String,
 }
 
+/// Event emitted when clipboard text is intercepted and waiting for user confirmation.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, tauri_specta::Event)]
+pub struct InterceptEvent {
+    pub intercept_id: String,
+    pub text: String,
+    /// Source of the intercept: "ocr" for screenshot OCR, "clipboard" for text copy/voice paste
+    pub source: String,
+}
+
 pub struct ClipboardManager {
     app_handle: AppHandle, db_path: PathBuf,
     last_clipboard_text: Mutex<Option<String>>,
     last_ocr_text: Mutex<Option<String>>,
     last_ocr_timestamp: Mutex<i64>,
     auto_track_running: Mutex<bool>,
+    /// Pending intercepts: intercept_id → text, waiting for user to confirm/discard
+    pending_intercepts: Mutex<HashMap<String, String>>,
 }
 
 impl ClipboardManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         let app_data_dir = crate::portable::app_data_dir(app_handle)?;
         let db_path = app_data_dir.join("clipboard.db");
-    let manager = Self { app_handle: app_handle.clone(), db_path, last_clipboard_text: Mutex::new(None), last_ocr_text: Mutex::new(None), last_ocr_timestamp: Mutex::new(0), auto_track_running: Mutex::new(false) };
+    let manager = Self { app_handle: app_handle.clone(), db_path, last_clipboard_text: Mutex::new(None), last_ocr_text: Mutex::new(None), last_ocr_timestamp: Mutex::new(0), auto_track_running: Mutex::new(false), pending_intercepts: Mutex::new(HashMap::new()) };
         manager.init_database()?;
         Ok(manager)
     }
@@ -191,7 +203,11 @@ impl ClipboardManager {
     /// Fallback clipboard reader using PowerShell — works when Tauri plugin can't lock clipboard.
     #[cfg(windows)]
     fn read_clipboard_text_powershell(&self) -> Result<String> {
-        let output = std::process::Command::new("powershell")
+        use std::os::windows::process::CommandExt;
+
+        let mut command = std::process::Command::new("powershell");
+        let output = command
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .args([
                 "-Sta",
                 "-NoProfile",
@@ -222,6 +238,10 @@ impl ClipboardManager {
             let mut tick: u64 = 0;
             loop {
                 tokio::time::sleep(Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS)).await;
+                if !*manager.auto_track_running.lock().await {
+                    info!("Clipboard auto-tracker stopped");
+                    break;
+                }
                 tick += 1;
 
                 // --- TEXT TRACKING ---
@@ -255,9 +275,10 @@ impl ClipboardManager {
                     }
                 };
                 if !text.trim().is_empty() && text.len() < 100_000 {
-                    match manager.add_from_clipboard(&text).await {
-                        Ok(entry) => info!("Auto-tracked clipboard text entry id={}", entry.id),
-                        Err(e) => debug!("Clipboard dedup or add error: {}", e),
+                    match manager.intercept_clipboard_text(&text).await {
+                        Ok(Some(id)) => info!("Clipboard intercepted, waiting for user: {}", id),
+                        Ok(None) => debug!("Clipboard text dedup or empty"),
+                        Err(e) => debug!("Clipboard intercept error: {}", e),
                     }
                 }
 
@@ -287,20 +308,8 @@ impl ClipboardManager {
                                 continue;
                             }
 
-                            // Replace clipboard image with extracted text so next tick picks it up
-                            let _ = app_handle.clipboard().write_text(&normalized);
-                            // Also update last_clipboard_text so we don't auto-add it again on next tick
-                            {
-                                let mut last = manager.last_clipboard_text.lock().await;
-                                *last = Some(normalized.clone());
-                            }
-                            match manager.add_entry(&normalized, ClipboardSource::Ocr) {
-                                Ok(entry) => {
-                                    info!("Auto-OCR saved entry id={}", entry.id);
-                                }
-                                Err(e) => {
-                                    debug!("OCR dedup or add error: {}", e);
-                                }
+                            if let Some(id) = manager.intercept_ocr_text(&normalized).await {
+                                info!("OCR intercepted, waiting for user: {}", id);
                             }
                         }
                         Ok(_) => {
@@ -313,6 +322,101 @@ impl ClipboardManager {
                 }
             }
         });
+    }
+
+    /// Core intercept creation: store pending + emit event. No dedup logic here.
+    async fn create_intercept(&self, text: &str, source: &str) -> String {
+        let normalized = Self::normalize_text(text);
+        let intercept_id = format!("icpt_{}", Utc::now().timestamp_millis());
+        self.pending_intercepts.lock().await.insert(intercept_id.clone(), normalized.clone());
+        let _ = InterceptEvent { intercept_id: intercept_id.clone(), text: normalized.clone(), source: source.to_string() }.emit(&self.app_handle);
+        info!("Clipboard intercept {} emitted ({} chars, source={})", intercept_id, normalized.len(), source);
+        intercept_id
+    }
+
+    pub async fn intercept_clipboard_text(&self, raw_text: &str) -> Result<Option<String>> {
+        let normalized = Self::normalize_text(raw_text);
+        if normalized.is_empty() { return Ok(None); }
+
+        // Dedup: skip if same text as last tracked
+        let mut last = self.last_clipboard_text.lock().await;
+        if let Some(ref lt) = *last { if lt == &normalized { return Ok(None); } }
+        *last = Some(normalized.clone());
+        drop(last);
+
+        let intercept_id = self.create_intercept(&normalized, "clipboard").await;
+        Ok(Some(intercept_id))
+    }
+
+    /// OCR intercept: bypass last_clipboard_text dedup (OCR has its own 10s debounce).
+    pub async fn intercept_ocr_text(&self, text: &str) -> Option<String> {
+        let normalized = Self::normalize_text(text);
+        if normalized.is_empty() { return None; }
+        let intercept_id = self.create_intercept(&normalized, "ocr").await;
+        Some(intercept_id)
+    }
+
+    /// User confirmed: save the intercepted text to the DB.
+    pub async fn confirm_intercept(&self, intercept_id: &str) -> Result<Option<ClipboardEntry>> {
+        let text = self.pending_intercepts.lock().await.remove(intercept_id);
+        match text {
+            Some(t) => {
+                let entry = self.add_entry(&t, ClipboardSource::Clipboard)?;
+                info!("Intercept {} confirmed, saved as entry {}", intercept_id, entry.id);
+                Ok(Some(entry))
+            }
+            None => {
+                debug!("Intercept {} not found (expired or already handled)", intercept_id);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Confirm with edited text instead of the original intercepted text.
+    pub async fn confirm_intercept_with_text(&self, intercept_id: &str, edited_text: &str) -> Result<Option<ClipboardEntry>> {
+        // Remove the pending intercept so it can't be re-used
+        self.pending_intercepts.lock().await.remove(intercept_id);
+        let normalized = Self::normalize_text(edited_text);
+        if normalized.is_empty() {
+            return Ok(None);
+        }
+        let entry = self.add_entry(&normalized, ClipboardSource::Clipboard)?;
+        info!("Intercept {} confirmed with edited text, saved as entry {}", intercept_id, entry.id);
+        Ok(Some(entry))
+    }
+
+    /// User confirmed with a voice note: save with note attached.
+    pub async fn confirm_intercept_with_note(&self, intercept_id: &str, note: &str) -> Result<Option<ClipboardEntry>> {
+        let text = self.pending_intercepts.lock().await.remove(intercept_id);
+        match text {
+            Some(t) => {
+                let normalized = Self::normalize_text(&t);
+                if normalized.is_empty() { return Ok(None); }
+                let conn = self.get_connection()?;
+                conn.execute(
+                    "INSERT INTO clipboard_entries (text, note, timestamp, saved, source) VALUES (?1, ?2, ?3, 0, 'clipboard')",
+                    params![&normalized, note, Utc::now().timestamp()],
+                )?;
+                let id = conn.last_insert_rowid();
+                conn.execute("DELETE FROM clipboard_entries WHERE id NOT IN (SELECT id FROM clipboard_entries ORDER BY id DESC LIMIT 500)", [])?;
+                let entry = ClipboardEntry { id, text: normalized, note: Some(note.to_string()), timestamp: Utc::now().timestamp(), saved: false, source: "clipboard".to_string() };
+                let _ = (ClipboardUpdatePayload::Added { entry: entry.clone() }).emit(&self.app_handle);
+                info!("Intercept {} confirmed with voice note, saved as entry {}", intercept_id, entry.id);
+                Ok(Some(entry))
+            }
+            None => {
+                debug!("Intercept {} not found (expired or already handled)", intercept_id);
+                Ok(None)
+            }
+        }
+    }
+
+    /// User discarded: remove pending intercept without saving.
+    pub async fn discard_intercept(&self, intercept_id: &str) {
+        let removed = self.pending_intercepts.lock().await.remove(intercept_id);
+        if removed.is_some() {
+            info!("Intercept {} discarded", intercept_id);
+        }
     }
 
     pub async fn stop_auto_track(&self) {

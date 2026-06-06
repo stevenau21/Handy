@@ -449,11 +449,16 @@ pub fn run(cli_args: CliArgs) {
             commands::clipboard::ocr_grab_screen,
             commands::clipboard::start_clipboard_auto_track,
             commands::clipboard::stop_clipboard_auto_track,
+            commands::clipboard::confirm_clipboard_intercept,
+            commands::clipboard::confirm_clipboard_intercept_with_note,
+            commands::clipboard::confirm_clipboard_intercept_with_text,
+            commands::clipboard::discard_clipboard_intercept,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![
             managers::history::HistoryUpdatePayload,
             managers::clipboard::ClipboardUpdatePayload,
+            managers::clipboard::InterceptEvent,
         ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds

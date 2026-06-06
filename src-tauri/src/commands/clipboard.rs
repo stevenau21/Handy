@@ -1,9 +1,9 @@
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::managers::clipboard::{
-    ClipboardEntry, ClipboardManager, ClipboardSource, ClipboardUpdatePayload, PaginatedClipboard,
+    ClipboardEntry, ClipboardManager, ClipboardSource, PaginatedClipboard,
 };
 
 #[tauri::command]
@@ -150,5 +150,59 @@ pub async fn stop_clipboard_auto_track(
     clipboard_manager: State<'_, Arc<ClipboardManager>>,
 ) -> Result<(), String> {
     clipboard_manager.stop_auto_track().await;
+    Ok(())
+}
+
+/// Confirm a clipboard intercept — saves the text to the clipboard DB.
+#[tauri::command]
+#[specta::specta]
+pub async fn confirm_clipboard_intercept(
+    clipboard_manager: State<'_, Arc<ClipboardManager>>,
+    intercept_id: String,
+) -> Result<Option<ClipboardEntry>, String> {
+    clipboard_manager
+        .confirm_intercept(&intercept_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Confirm a clipboard intercept with a voice note attached.
+#[tauri::command]
+#[specta::specta]
+pub async fn confirm_clipboard_intercept_with_note(
+    clipboard_manager: State<'_, Arc<ClipboardManager>>,
+    intercept_id: String,
+    note: String,
+) -> Result<Option<ClipboardEntry>, String> {
+    clipboard_manager
+        .confirm_intercept_with_note(&intercept_id, &note)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Confirm a clipboard intercept with edited text (user modified in the popup).
+#[tauri::command]
+#[specta::specta]
+pub async fn confirm_clipboard_intercept_with_text(
+    clipboard_manager: State<'_, Arc<ClipboardManager>>,
+    intercept_id: String,
+    edited_text: String,
+) -> Result<Option<ClipboardEntry>, String> {
+    clipboard_manager
+        .confirm_intercept_with_text(&intercept_id, &edited_text)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Discard a clipboard intercept without saving.
+#[tauri::command]
+#[specta::specta]
+pub async fn discard_clipboard_intercept(
+    clipboard_manager: State<'_, Arc<ClipboardManager>>,
+    intercept_id: String,
+) -> Result<(), String> {
+    clipboard_manager
+        .discard_intercept(&intercept_id)
+        .await;
     Ok(())
 }

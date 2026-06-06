@@ -86,10 +86,6 @@ export const ClipboardSettings: React.FC = () => {
     loadPage();
   }, [loadPage]);
 
-  // Auto-start clipboard tracking when tab mounts (always-on)
-  useEffect(() => {
-    commands.startClipboardAutoTrack().catch(console.error);
-  }, []);
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {

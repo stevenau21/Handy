@@ -930,6 +930,50 @@ async stopClipboardAutoTrack() : Promise<Result<null, string>> {
 }
 },
 /**
+ * Confirm a clipboard intercept — saves the text to the clipboard DB.
+ */
+async confirmClipboardIntercept(interceptId: string) : Promise<Result<ClipboardEntry | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("confirm_clipboard_intercept", { interceptId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Confirm a clipboard intercept with a voice note attached.
+ */
+async confirmClipboardInterceptWithNote(interceptId: string, note: string) : Promise<Result<ClipboardEntry | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("confirm_clipboard_intercept_with_note", { interceptId, note }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Confirm a clipboard intercept with edited text (user modified in the popup).
+ */
+async confirmClipboardInterceptWithText(interceptId: string, editedText: string) : Promise<Result<ClipboardEntry | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("confirm_clipboard_intercept_with_text", { interceptId, editedText }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Discard a clipboard intercept without saving.
+ */
+async discardClipboardIntercept(interceptId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("discard_clipboard_intercept", { interceptId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Stub implementation for non-macOS platforms
  * Always returns false since laptop detection is macOS-specific
  */
@@ -948,10 +992,12 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 export const events = __makeEvents__<{
 clipboardUpdatePayload: ClipboardUpdatePayload,
-historyUpdatePayload: HistoryUpdatePayload
+historyUpdatePayload: HistoryUpdatePayload,
+interceptEvent: InterceptEvent
 }>({
 clipboardUpdatePayload: "clipboard-update-payload",
-historyUpdatePayload: "history-update-payload"
+historyUpdatePayload: "history-update-payload",
+interceptEvent: "intercept-event"
 })
 
 /** user-defined constants **/
@@ -981,6 +1027,14 @@ export type ImplementationChangeResult = { success: boolean;
  * List of binding IDs that were reset to defaults due to incompatibility
  */
 reset_bindings: string[] }
+/**
+ * Event emitted when clipboard text is intercepted and waiting for user confirmation.
+ */
+export type InterceptEvent = { intercept_id: string; text: string; 
+/**
+ * Source of the intercept: "ocr" for screenshot OCR, "clipboard" for text copy/voice paste
+ */
+source: string }
 export type KeyboardImplementation = "tauri" | "handy_keys"
 export type LLMPrompt = { id: string; name: string; prompt: string }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"

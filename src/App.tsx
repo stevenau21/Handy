@@ -17,6 +17,7 @@ import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
+import ClipboardSavePopup from "./components/clipboard/ClipboardSavePopup";
 
 type OnboardingStep = "accessibility" | "model" | "done";
 
@@ -69,6 +70,15 @@ function App() {
       refreshOutputDevices();
     }
   }, [onboardingStep, refreshAudioDevices, refreshOutputDevices]);
+
+  // Start clipboard auto-tracker globally so intercept popup works everywhere
+  useEffect(() => {
+    if (onboardingStep !== "done") return;
+    commands.startClipboardAutoTrack().catch(console.error);
+    return () => {
+      commands.stopClipboardAutoTrack().catch(console.error);
+    };
+  }, [onboardingStep]);
 
   // Handle keyboard shortcuts for debug mode toggle
   useEffect(() => {
@@ -282,6 +292,9 @@ function App() {
       </div>
       {/* Fixed footer at bottom */}
       <Footer />
+
+      {/* Clipboard save/discard popup */}
+      <ClipboardSavePopup />
     </div>
   );
 }
