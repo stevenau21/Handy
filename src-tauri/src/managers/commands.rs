@@ -1,23 +1,38 @@
 use crate::settings::VoiceCommand;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use tauri::AppHandle;
 
 /// Check if transcribed text is a voice command.
 pub fn parse_command(text: &str, commands: &[VoiceCommand], wake_phrase: &str) -> Option<VoiceCommand> {
     let trimmed = text.trim();
     let after_wake = if trimmed.to_lowercase().starts_with(wake_phrase) {
-        trimmed[wake_phrase.len()..].trim()
+        // Strip common separators after wake phrase (comma, colon, dash, space)
+        trimmed[wake_phrase.len()..]
+            .trim_start_matches(|c: char| c.is_whitespace() || c == ',' || c == ':' || c == '-')
+            .trim()
     } else {
         trimmed
     };
     if after_wake.is_empty() { return None; }
     for cmd in commands {
         if !cmd.enabled { continue; }
-        if after_wake.to_lowercase().contains(&cmd.phrase.to_lowercase()) {
-            debug!("Voice command matched: '{}' -> '{}'", after_wake, cmd.phrase);
+        let raw_phrase = cmd.phrase.trim();
+        // Guard against empty or dangerously short phrases that would match everything.
+        if raw_phrase.len() < 2 {
+            warn!("Voice command '{}' has empty or too-short phrase (len={}), skipping", cmd.id, raw_phrase.len());
+            continue;
+        }
+        let cmd_phrase = raw_phrase.to_lowercase();
+        let text_lower = after_wake.to_lowercase();
+        // Require the command phrase to be a PREFIX of the transcription.
+        // This prevents random words embedded in the middle of normal speech
+        // from falsely triggering commands and silently skipping the paste.
+        if text_lower.starts_with(&cmd_phrase) {
+            info!("Voice command matched: '{}' -> '{}'", after_wake, cmd.phrase);
             return Some(cmd.clone());
         }
     }
+    info!("No voice command match in transcription: '{}'", after_wake);
     None
 }
 

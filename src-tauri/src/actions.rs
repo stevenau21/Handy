@@ -390,7 +390,7 @@ pub(crate) async fn process_transcription_output(
 impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
-        debug!("TranscribeAction::start called for binding: {}", binding_id);
+        info!("TranscribeAction::start called for binding: {}", binding_id);
 
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
@@ -428,7 +428,7 @@ impl ShortcutAction for TranscribeAction {
             });
 
             if let Err(e) = rm.try_start_recording(&binding_id) {
-                debug!("Recording failed: {}", e);
+                warn!("Recording failed: {}", e);
                 recording_error = Some(e);
             }
         } else {
@@ -438,7 +438,7 @@ impl ShortcutAction for TranscribeAction {
             let recording_start_time = Instant::now();
             match rm.try_start_recording(&binding_id) {
                 Ok(()) => {
-                    debug!("Recording started in {:?}", recording_start_time.elapsed());
+                    info!("Recording started in {:?}", recording_start_time.elapsed());
                     // Small delay to ensure microphone stream is active
                     let app_clone = app.clone();
                     let rm_clone = Arc::clone(&rm);
@@ -452,7 +452,7 @@ impl ShortcutAction for TranscribeAction {
                     });
                 }
                 Err(e) => {
-                    debug!("Failed to start recording: {}", e);
+                    warn!("Failed to start recording: {}", e);
                     recording_error = Some(e);
                 }
             }
@@ -495,7 +495,7 @@ impl ShortcutAction for TranscribeAction {
         shortcut::unregister_cancel_shortcut(app);
 
         let stop_time = Instant::now();
-        debug!("TranscribeAction::stop called for binding: {}", binding_id);
+        info!("TranscribeAction::stop called for binding: {}", binding_id);
 
         let ah = app.clone();
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
@@ -516,21 +516,21 @@ impl ShortcutAction for TranscribeAction {
 
         tauri::async_runtime::spawn(async move {
             let _guard = FinishGuard(ah.clone());
-            debug!(
+            info!(
                 "Starting async transcription task for binding: {}",
                 binding_id
             );
 
             let stop_recording_time = Instant::now();
             if let Some(samples) = rm.stop_recording(&binding_id) {
-                debug!(
+                info!(
                     "Recording stopped and samples retrieved in {:?}, sample count: {}",
                     stop_recording_time.elapsed(),
                     samples.len()
                 );
 
                 if samples.is_empty() {
-                    debug!("Recording produced no audio samples; skipping persistence");
+                    warn!("Recording produced no audio samples; skipping persistence");
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
                 } else {
@@ -574,7 +574,7 @@ impl ShortcutAction for TranscribeAction {
 
                     match transcription_result {
                         Ok(transcription) => {
-                            debug!(
+                            info!(
                                 "Transcription completed in {:?}: '{}'",
                                 transcription_time.elapsed(),
                                 transcription
@@ -628,7 +628,7 @@ impl ShortcutAction for TranscribeAction {
                                     let final_text = processed.final_text;
                                     ah.run_on_main_thread(move || {
                                         match utils::paste(final_text, ah_clone.clone()) {
-                                            Ok(()) => debug!(
+                                            Ok(()) => info!(
                                                 "Text pasted successfully in {:?}",
                                                 paste_time.elapsed()
                                             ),
@@ -649,7 +649,7 @@ impl ShortcutAction for TranscribeAction {
                             }
                         }
                         Err(err) => {
-                            debug!("Global Shortcut Transcription error: {}", err);
+                            warn!("Global Shortcut Transcription error: {}", err);
                             // Save entry with empty text so user can retry
                             if wav_saved {
                                 if let Err(save_err) = hm.save_entry(
@@ -668,7 +668,7 @@ impl ShortcutAction for TranscribeAction {
                     }
                 }
             } else {
-                debug!("No samples retrieved from recording stop");
+                warn!("No samples retrieved from recording stop");
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
             }

@@ -64,9 +64,12 @@ pub struct InterceptEvent {
 pub struct ClipboardManager {
     app_handle: AppHandle, db_path: PathBuf,
     last_clipboard_text: Mutex<Option<String>>,
+    last_clipboard_timestamp: Mutex<i64>,
     last_ocr_text: Mutex<Option<String>>,
     last_ocr_timestamp: Mutex<i64>,
     auto_track_running: Mutex<bool>,
+    /// Consecutive clipboard-read failures to detect stuck API state
+    consecutive_read_failures: Mutex<u32>,
     /// Pending intercepts: intercept_id → text, waiting for user to confirm/discard
     pending_intercepts: Mutex<HashMap<String, String>>,
 }
@@ -75,7 +78,17 @@ impl ClipboardManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         let app_data_dir = crate::portable::app_data_dir(app_handle)?;
         let db_path = app_data_dir.join("clipboard.db");
-    let manager = Self { app_handle: app_handle.clone(), db_path, last_clipboard_text: Mutex::new(None), last_ocr_text: Mutex::new(None), last_ocr_timestamp: Mutex::new(0), auto_track_running: Mutex::new(false), pending_intercepts: Mutex::new(HashMap::new()) };
+    let manager = Self {
+        app_handle: app_handle.clone(),
+        db_path,
+        last_clipboard_text: Mutex::new(None),
+        last_clipboard_timestamp: Mutex::new(0),
+        last_ocr_text: Mutex::new(None),
+        last_ocr_timestamp: Mutex::new(0),
+        auto_track_running: Mutex::new(false),
+        consecutive_read_failures: Mutex::new(0),
+        pending_intercepts: Mutex::new(HashMap::new()),
+    };
         manager.init_database()?;
         Ok(manager)
     }
@@ -244,18 +257,22 @@ impl ClipboardManager {
                 }
                 tick += 1;
 
+                let now = Utc::now().timestamp();
+
                 // --- TEXT TRACKING ---
+                let mut read_failed = false;
                 let text: String = match app_handle.clipboard().read_text() {
                     Ok(t) if !t.is_empty() => {
-                        debug!("Tauri plugin read {} chars from clipboard", t.len());
+                        info!("[CLIPBOARD] Tauri plugin read {} chars", t.len());
                         t
                     }
                     Ok(_) => {
-                        // No text — try OCR on image below
+                        // No text — clipboard may contain an image instead
                         String::new()
                     }
                     Err(e) => {
-                        debug!("Tauri plugin clipboard read failed ({}), trying PowerShell fallback", e);
+                        read_failed = true;
+                        info!("[CLIPBOARD] Tauri read failed ({}), trying PowerShell fallback", e);
                         let fallback: Result<String>;
                         #[cfg(windows)]
                         { fallback = manager.read_clipboard_text_powershell(); }
@@ -263,29 +280,62 @@ impl ClipboardManager {
                         { fallback = Err(anyhow!("non-Windows, no fallback")); }
                         match fallback {
                             Ok(t) if !t.is_empty() => {
-                                info!("PowerShell fallback read {} chars from clipboard", t.len());
+                                info!("[CLIPBOARD] PowerShell fallback read {} chars", t.len());
                                 t
                             }
-                            Ok(_) => String::new(),
+                            Ok(_) => {
+                                info!("[CLIPBOARD] PowerShell fallback returned empty");
+                                String::new()
+                            }
                             Err(e2) => {
-                                debug!("PowerShell fallback also failed: {}", e2);
+                                info!("[CLIPBOARD] PowerShell fallback also failed: {}", e2);
                                 String::new()
                             }
                         }
                     }
                 };
+
+                let mut last_ts = manager.last_clipboard_timestamp.lock().await;
+                let mut failures = manager.consecutive_read_failures.lock().await;
+                let seconds_since_last_text = now.saturating_sub(*last_ts);
+
+                // If we haven't seen text for 60s, clear dedup state so
+                // the next copy is always treated as new. This fixes the
+                // "stuck dedup" bug where closing+reopening Handy fixes it.
+                if seconds_since_last_text > 60 && manager.last_clipboard_text.lock().await.is_some() {
+                    info!("[CLIPBOARD] 60s timeout — clearing dedup state");
+                    *manager.last_clipboard_text.lock().await = None;
+                    *last_ts = 0;
+                }
+
+                if read_failed {
+                    *failures += 1;
+                    // After 3 consecutive read failures, force-reset dedup state
+                    // so the next successful read is always intercepted.
+                    if *failures >= 3 {
+                        info!("[CLIPBOARD] 3 consecutive read failures — resetting dedup state");
+                        *manager.last_clipboard_text.lock().await = None;
+                        *last_ts = 0;
+                        *failures = 0;
+                    }
+                } else {
+                    *failures = 0;
+                }
+                drop(last_ts);
+                drop(failures);
+
                 if !text.trim().is_empty() && text.len() < 100_000 {
                     match manager.intercept_clipboard_text(&text).await {
-                        Ok(Some(id)) => info!("Clipboard intercepted, waiting for user: {}", id),
-                        Ok(None) => debug!("Clipboard text dedup or empty"),
-                        Err(e) => debug!("Clipboard intercept error: {}", e),
+                        Ok(Some(id)) => info!("[CLIPBOARD] Intercepted, waiting for user: {}", id),
+                        Ok(None) => info!("[CLIPBOARD] Text deduped or empty"),
+                        Err(e) => info!("[CLIPBOARD] Intercept error: {}", e),
                     }
                 }
 
                 // --- IMAGE / OCR TRACKING ---
                 // Every 4 seconds, try OCR on any image in clipboard (screenshots from Win+Shift+S)
                 if tick % 8 == 0 {
-                    debug!("Checking clipboard for image to OCR...");
+                    info!("[OCR] Checking clipboard for image...");
                     match crate::ocr::ocr_clipboard_image().await {
                         Ok(text) if !text.trim().is_empty() => {
                             let normalized = Self::normalize_text(&text);
@@ -304,19 +354,18 @@ impl ClipboardManager {
                                 skip
                             };
                             if should_skip {
-                                debug!("OCR duplicate text within 10s, skipping");
-                                continue;
-                            }
-
-                            if let Some(id) = manager.intercept_ocr_text(&normalized).await {
-                                info!("OCR intercepted, waiting for user: {}", id);
+                                info!("[OCR] Duplicate text within 10s, skipping");
+                            } else {
+                                if let Some(id) = manager.intercept_ocr_text(&normalized).await {
+                                    info!("[OCR] Intercepted, waiting for user: {}", id);
+                                }
                             }
                         }
                         Ok(_) => {
-                            debug!("No text found in clipboard image");
+                            info!("[OCR] No text found in clipboard image");
                         }
                         Err(e) => {
-                            debug!("Auto-OCR skipped: {}", e);
+                            info!("[OCR] Skipped: {}", e);
                         }
                     }
                 }
@@ -340,9 +389,13 @@ impl ClipboardManager {
 
         // Dedup: skip if same text as last tracked
         let mut last = self.last_clipboard_text.lock().await;
-        if let Some(ref lt) = *last { if lt == &normalized { return Ok(None); } }
+        if let Some(ref lt) = *last { if lt == &normalized {
+            info!("[CLIPBOARD] Dedup — same text as previous intercept, skipping");
+            return Ok(None);
+        } }
         *last = Some(normalized.clone());
         drop(last);
+        *self.last_clipboard_timestamp.lock().await = Utc::now().timestamp();
 
         let intercept_id = self.create_intercept(&normalized, "clipboard").await;
         Ok(Some(intercept_id))
