@@ -4,6 +4,33 @@
 
 ---
 
+## ⚠️ IMPORTANT: Handy is a DESKTOP Application
+
+**Handy is NOT a web app or website.** You cannot open it by typing `localhost` into a web browser.
+
+Handy is a **native desktop application** built with [Tauri](https://tauri.app/) (Rust backend + React frontend). It runs as a regular Windows program.
+
+### How to run Handy after building:
+1. **Double-click the executable:**
+   ```
+   src-tauri\target\release\handy.exe
+   ```
+2. **Or look for the Handy icon in your system tray** (bottom-right corner of your screen, near the clock) and click it to open the window.
+3. **Or use your configured global shortcut** (e.g., `Ctrl+Shift+Space`) to activate voice transcription.
+
+### What Handy is:
+- ✅ A native Windows desktop app (.exe)
+- ✅ Runs in the background with a system tray icon
+- ✅ Uses global keyboard shortcuts for voice commands
+- ✅ Has a local SQLite database for clipboard history
+
+### What Handy is NOT:
+- ❌ A web app you open in a browser
+- ❌ A server you access via `http://localhost`
+- ❌ A website with a URL
+
+---
+
 ## Project Structure
 
 ```
@@ -302,6 +329,10 @@ cargo build --release --features tauri/custom-protocol --manifest-path F:\projec
 # Full release with installer
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul
 cd /d F:\projects\Handy && bun run tauri build
+
+# 🔄 AUTO-REBUILD + AUTO-RESTART (no more manual rebuilds!)
+# Just run this once and it watches for file changes automatically:
+watch_and_rebuild.bat
 
 # Kill stale processes
 taskkill /f /im handy.exe

@@ -1,5 +1,7 @@
 @echo off
 REM Quick release build: skips NSIS bundling (we only need handy.exe for the desktop shortcut).
+REM IMPORTANT: Must include --features tauri/custom-protocol so the app serves
+REM embedded assets instead of trying to reach localhost:1420 on startup.
 REM Logs to build_release_quick.log and exits when done.
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
@@ -11,5 +13,5 @@ set CMAKE_CXX_COMPILER=C:\PROGRA~2\MICROS~2\2022\BUILDT~1\VC\Tools\MSVC\1444~1.3
 set CC=%CMAKE_C_COMPILER%
 set CXX=%CMAKE_CXX_COMPILER%
 cd /d F:\projects\Handy\src-tauri
-cargo build --release > F:\projects\Handy\build_release_quick.log 2>&1
+cargo build --release --features tauri/custom-protocol > F:\projects\Handy\build_release_quick.log 2>&1
 echo EXIT_CODE=%ERRORLEVEL% >> F:\projects\Handy\build_release_quick.log

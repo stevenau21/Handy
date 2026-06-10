@@ -453,6 +453,7 @@ pub fn run(cli_args: CliArgs) {
             commands::clipboard::confirm_clipboard_intercept_with_note,
             commands::clipboard::confirm_clipboard_intercept_with_text,
             commands::clipboard::discard_clipboard_intercept,
+            commands::clipboard::force_refresh_clipboard,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![

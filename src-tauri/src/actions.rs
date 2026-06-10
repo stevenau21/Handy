@@ -622,10 +622,13 @@ impl ShortcutAction for TranscribeAction {
                                     utils::hide_recording_overlay(&ah);
                                     change_tray_icon(&ah, TrayIconState::Idle);
                                 } else {
-                                    // Normal paste flow
+                                    // Normal paste flow — voice transcription text is pasted
+                                    // directly to the active window. It does NOT go to the
+                                    // clipboard DB; only screenshot OCR text belongs there.
                                     let ah_clone = ah.clone();
                                     let paste_time = Instant::now();
-                                    let final_text = processed.final_text;
+                                    let final_text = processed.final_text.clone();
+
                                     ah.run_on_main_thread(move || {
                                         match utils::paste(final_text, ah_clone.clone()) {
                                             Ok(()) => info!(

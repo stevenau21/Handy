@@ -5,6 +5,7 @@ use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMetho
 use enigo::{Direction, Enigo, Key, Keyboard};
 use log::info;
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -22,27 +23,77 @@ fn paste_via_clipboard(
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
     let clipboard_content = clipboard.read_text().unwrap_or_default();
+    info!(
+        "[PASTE] clipboard read before write: {} chars",
+        clipboard_content.len()
+    );
 
-    // Write text to clipboard first
-    // On Wayland, prefer wl-copy for better compatibility (especially with umlauts)
+    // Write text to clipboard with retry and verification
     #[cfg(target_os = "linux")]
-    let write_result = if is_wayland() && is_wl_copy_available() {
-        info!("Using wl-copy for clipboard write on Wayland");
-        write_clipboard_via_wl_copy(text)
+    let write_ok = if is_wayland() && is_wl_copy_available() {
+        info!("[PASTE] Using wl-copy for clipboard write on Wayland");
+        write_clipboard_via_wl_copy(text).is_ok()
     } else {
-        clipboard
-            .write_text(text)
-            .map_err(|e| format!("Failed to write to clipboard: {}", e))
+        clipboard.write_text(text).is_ok()
     };
 
     #[cfg(not(target_os = "linux"))]
-    let write_result = clipboard
-        .write_text(text)
-        .map_err(|e| format!("Failed to write to clipboard: {}", e));
+    let write_ok = clipboard.write_text(text).is_ok();
 
-    write_result?;
+    if !write_ok {
+        return Err(format!(
+            "[PASTE] clipboard.write_text failed for {} chars",
+            text.len()
+        ));
+    }
 
     std::thread::sleep(Duration::from_millis(paste_delay_ms));
+
+    // Verify the clipboard actually contains the new text
+    let mut verified = false;
+    for attempt in 1..=3 {
+        std::thread::sleep(Duration::from_millis(50));
+        match clipboard.read_text() {
+            Ok(ref current) if current.trim() == text.trim() => {
+                info!(
+                    "[PASTE] clipboard verified OK on attempt {} ({} chars match)",
+                    attempt,
+                    text.len()
+                );
+                verified = true;
+                break;
+            }
+            Ok(ref current) => {
+                let exp_preview: String = text.chars().take(40).collect();
+                let got_preview: String = current.chars().take(40).collect();
+                info!(
+                    "[PASTE] verification mismatch on attempt {}: expected {} chars, got {} chars (content: '{}' vs '{}')",
+                    attempt,
+                    text.len(),
+                    current.len(),
+                    exp_preview,
+                    got_preview
+                );
+                // Retry write before next verification
+                if attempt < 3 {
+                    let _ = clipboard.write_text(text);
+                }
+            }
+            Err(e) => {
+                info!(
+                    "[PASTE] verification read failed on attempt {}: {}",
+                    attempt, e
+                );
+            }
+        }
+    }
+
+    if !verified {
+        return Err(format!(
+            "[PASTE] clipboard write verification failed after 3 attempts for {} chars",
+            text.len()
+        ));
+    }
 
     // Send paste key combo
     #[cfg(target_os = "linux")]
@@ -51,7 +102,6 @@ fn paste_via_clipboard(
     #[cfg(not(target_os = "linux"))]
     let key_combo_sent = false;
 
-    // Fall back to enigo if no native tool handled it
     if !key_combo_sent {
         match paste_method {
             PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo)?,
@@ -63,8 +113,13 @@ fn paste_via_clipboard(
 
     std::thread::sleep(std::time::Duration::from_millis(50));
 
+    // Suppress clipboard monitoring during restore to prevent the
+    // restored old text from triggering a spurious intercept event.
+    if let Some(cm) = app_handle.try_state::<Arc<crate::managers::clipboard::ClipboardManager>>() {
+        cm.set_suppress_monitoring(true);
+    }
+
     // Restore original clipboard content
-    // On Wayland, prefer wl-copy for better compatibility
     #[cfg(target_os = "linux")]
     if is_wayland() && is_wl_copy_available() {
         let _ = write_clipboard_via_wl_copy(&clipboard_content);
@@ -74,6 +129,16 @@ fn paste_via_clipboard(
 
     #[cfg(not(target_os = "linux"))]
     let _ = clipboard.write_text(&clipboard_content);
+
+    // Resume monitoring after restore
+    if let Some(cm) = app_handle.try_state::<Arc<crate::managers::clipboard::ClipboardManager>>() {
+        cm.set_suppress_monitoring(false);
+    }
+
+    info!(
+        "[PASTE] restored {} chars to clipboard after paste",
+        clipboard_content.len()
+    );
 
     Ok(())
 }
@@ -628,13 +693,24 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
             )?;
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-            paste_via_clipboard(
+            if let Err(ref e) = paste_via_clipboard(
                 &mut enigo,
                 &text,
                 &app_handle,
                 &paste_method,
                 paste_delay_ms,
-            )?
+            ) {
+                info!(
+                    "[PASTE] Clipboard paste failed ({}). Falling back to direct typing.",
+                    e
+                );
+                paste_direct(
+                    &mut enigo,
+                    &text,
+                    #[cfg(target_os = "linux")]
+                    settings.typing_tool,
+                )?;
+            }
         }
         PasteMethod::ExternalScript => {
             let script_path = settings

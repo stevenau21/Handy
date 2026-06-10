@@ -974,6 +974,17 @@ async discardClipboardIntercept(interceptId: string) : Promise<Result<null, stri
 }
 },
 /**
+ * FIX 5: Force a manual clipboard refresh — clears dedup state and re-reads clipboard.
+ */
+async forceRefreshClipboard() : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("force_refresh_clipboard") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Stub implementation for non-macOS platforms
  * Always returns false since laptop detection is macOS-specific
  */

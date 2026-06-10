@@ -206,3 +206,16 @@ pub async fn discard_clipboard_intercept(
         .await;
     Ok(())
 }
+
+/// FIX 5: Force a manual clipboard refresh — clears dedup state and re-reads clipboard.
+/// Returns a status message for the UI to display.
+#[tauri::command]
+#[specta::specta]
+pub async fn force_refresh_clipboard(
+    clipboard_manager: State<'_, Arc<ClipboardManager>>,
+) -> Result<String, String> {
+    clipboard_manager
+        .force_refresh_clipboard()
+        .await
+        .map_err(|e| e.to_string())
+}

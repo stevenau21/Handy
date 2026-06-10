@@ -46,15 +46,21 @@ export const ClipboardSavePopup: React.FC = () => {
               // OCR comes in while popup is open — queue it
               setQueue((prev) => [...prev, incoming]);
             }
-          } else {
+            } else {
             // clipboard (voice paste / text copy) → fills note if popup open, queues otherwise
             if (!curr) {
               setCurrent(incoming);
               setEditedText(incoming.text);
               setNote("");
             } else {
-              // Popup is open — voice goes to note field
-              setNote(incoming.text);
+              // Popup is open — voice/clipboard text APPENDS to note (never replaces)
+              setNote((prevNote) => {
+                const trimmed = prevNote.trim();
+                if (!trimmed) return incoming.text;
+                // Avoid duplicating if the text is already at the end
+                if (trimmed.endsWith(incoming.text)) return prevNote;
+                return `${trimmed} ${incoming.text}`;
+              });
               // Discard the voice intercept since we're using it as note
               commands.discardClipboardIntercept(incoming.intercept_id).catch(() => {});
             }

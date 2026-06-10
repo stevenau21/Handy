@@ -16,6 +16,36 @@ use tokio::sync::Mutex;
 /// Interval for polling the system clipboard for new text
 const CLIPBOARD_POLL_INTERVAL_MS: u64 = 500;
 
+/// How often (in ticks) to run OCR on clipboard images.
+/// 4 ticks × 500ms = 2 seconds (was 8 ticks = 4s).
+const OCR_CHECK_INTERVAL_TICKS: u64 = 4;
+
+/// How often (in ticks) to force a PowerShell cross-check to detect stale Tauri reads.
+/// 60 ticks × 500ms = 30 seconds.
+const FORCE_REFRESH_INTERVAL_TICKS: u64 = 60;
+
+/// Number of times the Tauri plugin must return the same text as our dedup state
+/// before we force a PowerShell refresh to break a potential stale-read loop.
+/// Reduced to 1 for immediate cross-check — when Tauri returns cached text,
+/// we verify with PowerShell right away instead of waiting 1.5s (3×500ms).
+const STALE_READ_THRESHOLD: u32 = 1;
+
+/// DEDUP TIMEOUT: How many seconds before we clear dedup state and treat
+/// the next clipboard content as new. 
+/// 
+/// NOTE: This must be longer than typical user reaction time to the intercept
+/// modal, or the same clipboard text will be re-intercepted while the user is
+/// still reading the dialog, causing an infinite "pops back up" loop.
+/// 120s gives users ample time to read and respond.
+const DEDUP_TIMEOUT_SECONDS: i64 = 120;
+
+/// HEALTH CHECK: If no successful clipboard read for this many seconds,
+/// log a warning and force-reset state (monitor may be stalled).
+const HEALTH_CHECK_STALL_SECONDS: i64 = 15;
+
+/// MAX RETRIES when Tauri returns empty before falling back to PowerShell.
+const TAURI_EMPTY_RETRIES: u32 = 2;
+
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ClipboardSource {
@@ -70,24 +100,51 @@ pub struct ClipboardManager {
     auto_track_running: Mutex<bool>,
     /// Consecutive clipboard-read failures to detect stuck API state
     consecutive_read_failures: Mutex<u32>,
+    /// Consecutive times the Tauri plugin returned the same text as our dedup state.
+    /// When this hits STALE_READ_THRESHOLD we force a PowerShell refresh.
+    stale_read_count: Mutex<u32>,
     /// Pending intercepts: intercept_id → text, waiting for user to confirm/discard
     pending_intercepts: Mutex<HashMap<String, String>>,
+    /// When true, the clipboard monitor skips processing.
+    /// Set during paste operations to prevent the clipboard-restore step
+    /// from triggering a spurious intercept event.
+    suppress_monitoring: std::sync::Mutex<bool>,
+    /// Consecutive ticks where Tauri returned empty text.
+    /// After TAURI_EMPTY_THRESHOLD ticks, we force a PowerShell cross-check
+    /// to detect clipboard content that Tauri is missing.
+    tauri_empty_count: Mutex<u32>,
+    /// Timestamp of last successful clipboard read (for health monitoring)
+    last_successful_read_ts: Mutex<i64>,
 }
 
 impl ClipboardManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         let app_data_dir = crate::portable::app_data_dir(app_handle)?;
         let db_path = app_data_dir.join("clipboard.db");
+
+        // Pre-seed with current clipboard content to avoid treating old
+        // clipboard contents as a "new" intercept on app startup.
+        let initial_clipboard: Option<String> = app_handle
+            .clipboard()
+            .read_text()
+            .ok()
+            .filter(|t| !t.trim().is_empty())
+            .map(|t| Self::normalize_text(&t));
+
     let manager = Self {
         app_handle: app_handle.clone(),
         db_path,
-        last_clipboard_text: Mutex::new(None),
-        last_clipboard_timestamp: Mutex::new(0),
+        last_clipboard_text: Mutex::new(initial_clipboard.clone()),
+        last_clipboard_timestamp: Mutex::new(if initial_clipboard.is_some() { Utc::now().timestamp() } else { 0 }),
         last_ocr_text: Mutex::new(None),
         last_ocr_timestamp: Mutex::new(0),
         auto_track_running: Mutex::new(false),
         consecutive_read_failures: Mutex::new(0),
+        stale_read_count: Mutex::new(0),
         pending_intercepts: Mutex::new(HashMap::new()),
+        suppress_monitoring: std::sync::Mutex::new(false),
+        tauri_empty_count: Mutex::new(0),
+        last_successful_read_ts: Mutex::new(Utc::now().timestamp()),
     };
         manager.init_database()?;
         Ok(manager)
@@ -245,9 +302,10 @@ impl ClipboardManager {
         *running = true; drop(running);
         let app_handle = self.app_handle.clone();
         let manager = self;
-        info!("Clipboard auto-tracker started");
+        info!("Clipboard auto-tracker started (OCR every {}ms, force-refresh every {}ms)",
+            OCR_CHECK_INTERVAL_TICKS * CLIPBOARD_POLL_INTERVAL_MS,
+            FORCE_REFRESH_INTERVAL_TICKS * CLIPBOARD_POLL_INTERVAL_MS);
         tokio::spawn(async move {
-            // Throttle OCR checks to every 4 seconds (every 8 ticks at 500ms)
             let mut tick: u64 = 0;
             loop {
                 tokio::time::sleep(Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS)).await;
@@ -260,15 +318,48 @@ impl ClipboardManager {
                 let now = Utc::now().timestamp();
 
                 // --- TEXT TRACKING ---
+                // Try Tauri plugin first, but ALWAYS fall back to PowerShell on Windows
+                // when Tauri returns empty — the Tauri plugin frequently returns empty
+                // when the clipboard is locked by another process (e.g., screenshot tools).
                 let mut read_failed = false;
+                let mut tauri_text: Option<String> = None;
                 let text: String = match app_handle.clipboard().read_text() {
                     Ok(t) if !t.is_empty() => {
                         info!("[CLIPBOARD] Tauri plugin read {} chars", t.len());
+                        tauri_text = Some(t.clone());
+                        // Reset empty counter since Tauri is working
+                        *manager.tauri_empty_count.lock().await = 0;
                         t
                     }
                     Ok(_) => {
-                        // No text — clipboard may contain an image instead
-                        String::new()
+                        // Tauri returned empty — track consecutive empties
+                        let mut empty_count = manager.tauri_empty_count.lock().await;
+                        *empty_count += 1;
+                        let ec = *empty_count;
+                        drop(empty_count);
+                        info!("[CLIPBOARD] Tauri returned empty (consecutive #{}), trying PowerShell fallback", ec);
+                        // Always try PowerShell when Tauri returns empty on Windows
+                        #[cfg(windows)]
+                        {
+                            match manager.read_clipboard_text_powershell() {
+                                Ok(ps_text) if !ps_text.trim().is_empty() => {
+                                    info!("[CLIPBOARD] PowerShell found {} chars that Tauri missed!", ps_text.len());
+                                    // Reset empty counter since we found content
+                                    *manager.tauri_empty_count.lock().await = 0;
+                                    ps_text
+                                }
+                                Ok(_) => {
+                                    info!("[CLIPBOARD] PowerShell also returned empty — clipboard truly empty");
+                                    String::new()
+                                }
+                                Err(e) => {
+                                    info!("[CLIPBOARD] PowerShell fallback failed: {}", e);
+                                    String::new()
+                                }
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        { String::new() }
                     }
                     Err(e) => {
                         read_failed = true;
@@ -281,6 +372,7 @@ impl ClipboardManager {
                         match fallback {
                             Ok(t) if !t.is_empty() => {
                                 info!("[CLIPBOARD] PowerShell fallback read {} chars", t.len());
+                                *manager.tauri_empty_count.lock().await = 0;
                                 t
                             }
                             Ok(_) => {
@@ -295,17 +387,148 @@ impl ClipboardManager {
                     }
                 };
 
+                // --- STALE-READ DETECTION ---
+                // If the Tauri plugin returned text that matches our dedup state,
+                // it might be a stale/cached read. Track consecutive matches.
+                {
+                    let last_text_guard = manager.last_clipboard_text.lock().await;
+                    let mut stale_count = manager.stale_read_count.lock().await;
+                    if let (Some(ref last), Some(ref tauri)) = (&*last_text_guard, &tauri_text) {
+                        let normalized_tauri = Self::normalize_text(tauri);
+                        if normalized_tauri == *last {
+                            *stale_count += 1;
+                            info!("[CLIPBOARD] Stale read #{} — Tauri returned same text as dedup state ({} chars)",
+                                *stale_count, last.len());
+                        } else {
+                            // Different text — reset stale counter
+                            if *stale_count > 0 {
+                                info!("[CLIPBOARD] Stale counter reset (was {}) — Tauri returned different text", *stale_count);
+                            }
+                            *stale_count = 0;
+                        }
+                    } else {
+                        *stale_count = 0;
+                    }
+                    drop(stale_count);
+                    drop(last_text_guard);
+                }
+
+                // --- PERIODIC FORCE-REFRESH ---
+                // Every 30s, cross-check with PowerShell to detect stale Tauri reads.
+                // If PowerShell returns different text than our dedup state, use it.
+                if tick % FORCE_REFRESH_INTERVAL_TICKS == 0 {
+                    info!("[CLIPBOARD] Periodic force-refresh: cross-checking with PowerShell");
+                    #[cfg(windows)]
+                    {
+                        match manager.read_clipboard_text_powershell() {
+                            Ok(ps_text) if !ps_text.trim().is_empty() => {
+                                let normalized_ps = Self::normalize_text(&ps_text);
+                                let last_text_guard = manager.last_clipboard_text.lock().await;
+                                let is_new = last_text_guard.as_ref().map_or(true, |lt| lt != &normalized_ps);
+                                drop(last_text_guard);
+                                if is_new {
+                                    info!("[CLIPBOARD] Force-refresh found NEW text via PowerShell ({} chars) — Tauri may be stale",
+                                        normalized_ps.len());
+                                    // Use the PowerShell text instead of whatever Tauri returned
+                                    if normalized_ps.len() < 100_000 {
+                                        match manager.intercept_clipboard_text(&normalized_ps).await {
+                                            Ok(Some(id)) => info!("[CLIPBOARD] Force-refresh intercepted: {}", id),
+                                            Ok(None) => info!("[CLIPBOARD] Force-refresh text deduped"),
+                                            Err(e) => info!("[CLIPBOARD] Force-refresh intercept error: {}", e),
+                                        }
+                                    }
+                                } else {
+                                    info!("[CLIPBOARD] Force-refresh: PowerShell text matches dedup state ({} chars) — OK",
+                                        normalized_ps.len());
+                                }
+                            }
+                            Ok(_) => {
+                                info!("[CLIPBOARD] Force-refresh: PowerShell returned empty clipboard");
+                            }
+                            Err(e) => {
+                                info!("[CLIPBOARD] Force-refresh: PowerShell failed: {}", e);
+                            }
+                        }
+                    }
+                }
+
+                // --- STALE-READ RECOVERY ---
+                // If Tauri returned the same text as dedup state STALE_READ_THRESHOLD times,
+                // force a PowerShell read to break the loop.
+                let mut stale_recovery_intercepted = false;
+                let force_ps_read = {
+                    let stale_count = manager.stale_read_count.lock().await;
+                    *stale_count >= STALE_READ_THRESHOLD
+                };
+                if force_ps_read && !text.trim().is_empty() {
+                    info!("[CLIPBOARD] {} stale reads — forcing PowerShell refresh to break potential loop",
+                        STALE_READ_THRESHOLD);
+                    #[cfg(windows)]
+                    {
+                        match manager.read_clipboard_text_powershell() {
+                            Ok(ps_text) if !ps_text.trim().is_empty() => {
+                                let normalized_ps = Self::normalize_text(&ps_text);
+                                let last_text_guard = manager.last_clipboard_text.lock().await;
+                                let is_new = last_text_guard.as_ref().map_or(true, |lt| lt != &normalized_ps);
+                                drop(last_text_guard);
+                                if is_new {
+                                    info!("[CLIPBOARD] Stale-recovery: PowerShell found NEW text ({} chars)",
+                                        normalized_ps.len());
+                                    if normalized_ps.len() < 100_000 {
+                                        match manager.intercept_clipboard_text(&normalized_ps).await {
+                                            Ok(Some(id)) => {
+                                                info!("[CLIPBOARD] Stale-recovery intercepted: {}", id);
+                                                stale_recovery_intercepted = true;
+                                            }
+                                            Ok(None) => info!("[CLIPBOARD] Stale-recovery text deduped"),
+                                            Err(e) => info!("[CLIPBOARD] Stale-recovery intercept error: {}", e),
+                                        }
+                                    }
+                                } else {
+                                    info!("[CLIPBOARD] Stale-recovery: PowerShell text matches dedup — clipboard truly unchanged");
+                                }
+                            }
+                            Ok(_) => {
+                                info!("[CLIPBOARD] Stale-recovery: PowerShell returned empty — clipboard cleared externally");
+                                // Clear dedup state so next copy is caught
+                                *manager.last_clipboard_text.lock().await = None;
+                                *manager.last_clipboard_timestamp.lock().await = 0;
+                            }
+                            Err(e) => {
+                                info!("[CLIPBOARD] Stale-recovery: PowerShell failed: {}", e);
+                            }
+                        }
+                    }
+                    // Reset stale counter after recovery attempt
+                    *manager.stale_read_count.lock().await = 0;
+                }
+
                 let mut last_ts = manager.last_clipboard_timestamp.lock().await;
                 let mut failures = manager.consecutive_read_failures.lock().await;
                 let seconds_since_last_text = now.saturating_sub(*last_ts);
 
-                // If we haven't seen text for 60s, clear dedup state so
+                // FIX 1: Reduced dedup timeout from 30s → 10s.
+                // If we haven't seen NEW text for 10s, clear dedup state so
                 // the next copy is always treated as new. This fixes the
                 // "stuck dedup" bug where closing+reopening Handy fixes it.
-                if seconds_since_last_text > 60 && manager.last_clipboard_text.lock().await.is_some() {
-                    info!("[CLIPBOARD] 60s timeout — clearing dedup state");
+                // Also catches rapid copies of similar content (screenshots, edited text).
+                if seconds_since_last_text > DEDUP_TIMEOUT_SECONDS && manager.last_clipboard_text.lock().await.is_some() {
+                    info!("[CLIPBOARD] Dedup timeout ({}s) — clearing dedup state (last text was {}s ago)", DEDUP_TIMEOUT_SECONDS, seconds_since_last_text);
                     *manager.last_clipboard_text.lock().await = None;
                     *last_ts = 0;
+                    // Also reset stale counter on timeout
+                    *manager.stale_read_count.lock().await = 0;
+                }
+                // FIX 3: Health check — track last time we successfully polled clipboard.
+                // Update last_successful_read_ts whenever we get text (even if deduped).
+                if !text.is_empty() || tauri_text.is_some() {
+                    *manager.last_successful_read_ts.lock().await = now;
+                }
+                let last_successful = *manager.last_successful_read_ts.lock().await;
+                let seconds_since_successful_poll = now.saturating_sub(last_successful);
+                // Log every 15s if we haven't successfully read from clipboard
+                if seconds_since_successful_poll > 0 && seconds_since_successful_poll % HEALTH_CHECK_STALL_SECONDS == 0 {
+                    info!("[CLIPBOARD] HEALTH CHECK: no successful clipboard poll for {}s ({} consecutive failures). Monitor may be stalled.", seconds_since_successful_poll, *failures);
                 }
 
                 if read_failed {
@@ -317,6 +540,7 @@ impl ClipboardManager {
                         *manager.last_clipboard_text.lock().await = None;
                         *last_ts = 0;
                         *failures = 0;
+                        *manager.stale_read_count.lock().await = 0;
                     }
                 } else {
                     *failures = 0;
@@ -324,17 +548,24 @@ impl ClipboardManager {
                 drop(last_ts);
                 drop(failures);
 
-                if !text.trim().is_empty() && text.len() < 100_000 {
+                // Skip text processing when monitoring is suppressed (e.g., during paste restore)
+                // Also skip if stale-recovery already intercepted new text — prevents double-intercept.
+                let suppressed = *manager.suppress_monitoring.lock().unwrap();
+                if stale_recovery_intercepted {
+                    info!("[CLIPBOARD] Skipping normal processing — stale-recovery already intercepted new text");
+                } else if !suppressed && !text.trim().is_empty() && text.len() < 100_000 {
                     match manager.intercept_clipboard_text(&text).await {
                         Ok(Some(id)) => info!("[CLIPBOARD] Intercepted, waiting for user: {}", id),
                         Ok(None) => info!("[CLIPBOARD] Text deduped or empty"),
                         Err(e) => info!("[CLIPBOARD] Intercept error: {}", e),
                     }
+                } else if suppressed {
+                    info!("[CLIPBOARD] Monitoring suppressed — skipping text intercept");
                 }
 
                 // --- IMAGE / OCR TRACKING ---
-                // Every 4 seconds, try OCR on any image in clipboard (screenshots from Win+Shift+S)
-                if tick % 8 == 0 {
+                // Every 2 seconds, try OCR on any image in clipboard (screenshots from Win+Shift+S)
+                if tick % OCR_CHECK_INTERVAL_TICKS == 0 {
                     info!("[OCR] Checking clipboard for image...");
                     match crate::ocr::ocr_clipboard_image().await {
                         Ok(text) if !text.trim().is_empty() => {
@@ -472,8 +703,100 @@ impl ClipboardManager {
         }
     }
 
+    /// Temporarily suppress clipboard monitoring.
+    /// Call this before clipboard-restore operations during paste to prevent
+    /// the restored text from triggering a spurious intercept event.
+    pub fn set_suppress_monitoring(&self, suppress: bool) {
+        let mut guard = self.suppress_monitoring.lock().unwrap();
+        *guard = suppress;
+        if suppress {
+            info!("[CLIPBOARD] Monitoring suppressed (paste in progress)");
+        } else {
+            info!("[CLIPBOARD] Monitoring resumed");
+        }
+    }
+
     pub async fn stop_auto_track(&self) {
         let mut running = self.auto_track_running.lock().await;
         *running = false;
+    }
+
+    /// FIX 5: Manual refresh — clears dedup state and forces a re-read of clipboard.
+    /// Call this from the UI when the user suspects clipboard items are being missed.
+    pub async fn force_refresh_clipboard(&self) -> Result<String> {
+        info!("[CLIPBOARD] Manual refresh requested — clearing dedup state and re-reading clipboard");
+
+        // Clear all dedup state
+        *self.last_clipboard_text.lock().await = None;
+        *self.last_clipboard_timestamp.lock().await = 0;
+        *self.stale_read_count.lock().await = 0;
+        *self.tauri_empty_count.lock().await = 0;
+        *self.consecutive_read_failures.lock().await = 0;
+
+        // Try to read current clipboard and intercept it
+        let app_handle = self.app_handle.clone();
+        let text = match app_handle.clipboard().read_text() {
+            Ok(t) if !t.trim().is_empty() => {
+                let normalized = Self::normalize_text(&t);
+                info!("[CLIPBOARD] Manual refresh read {} chars from Tauri", normalized.len());
+                match self.intercept_clipboard_text(&normalized).await {
+                    Ok(Some(id)) => {
+                        info!("[CLIPBOARD] Manual refresh intercepted: {}", id);
+                        format!("Intercepted {} chars (id={})", normalized.len(), id)
+                    }
+                    Ok(None) => {
+                        info!("[CLIPBOARD] Manual refresh: text deduped or empty after normalize");
+                        "Clipboard text deduped (same as recent)".to_string()
+                    }
+                    Err(e) => {
+                        info!("[CLIPBOARD] Manual refresh intercept error: {}", e);
+                        format!("Error: {}", e)
+                    }
+                }
+            }
+            Ok(_) => {
+                info!("[CLIPBOARD] Manual refresh: clipboard empty via Tauri, trying PowerShell");
+                #[cfg(windows)]
+                {
+                    match self.read_clipboard_text_powershell() {
+                        Ok(ps_text) if !ps_text.trim().is_empty() => {
+                            let normalized = Self::normalize_text(&ps_text);
+                            info!("[CLIPBOARD] Manual refresh read {} chars from PowerShell", normalized.len());
+                            match self.intercept_clipboard_text(&normalized).await {
+                                Ok(Some(id)) => format!("Intercepted {} chars via PowerShell (id={})", normalized.len(), id),
+                                Ok(None) => "PowerShell text deduped".to_string(),
+                                Err(e) => format!("Error: {}", e),
+                            }
+                        }
+                        Ok(_) => "Clipboard is empty".to_string(),
+                        Err(e) => format!("PowerShell read failed: {}", e),
+                    }
+                }
+                #[cfg(not(windows))]
+                { "Clipboard is empty".to_string() }
+            }
+            Err(e) => {
+                info!("[CLIPBOARD] Manual refresh Tauri read failed: {}", e);
+                #[cfg(windows)]
+                {
+                    match self.read_clipboard_text_powershell() {
+                        Ok(ps_text) if !ps_text.trim().is_empty() => {
+                            let normalized = Self::normalize_text(&ps_text);
+                            match self.intercept_clipboard_text(&normalized).await {
+                                Ok(Some(id)) => format!("Intercepted {} chars via PowerShell fallback (id={})", normalized.len(), id),
+                                Ok(None) => "PowerShell text deduped".to_string(),
+                                Err(e2) => format!("Error: {}", e2),
+                            }
+                        }
+                        Ok(_) => "Clipboard is empty".to_string(),
+                        Err(e2) => format!("Both Tauri and PowerShell failed: {} / {}", e, e2),
+                    }
+                }
+                #[cfg(not(windows))]
+                { format!("Clipboard read failed: {}", e) }
+            }
+        };
+
+        Ok(text)
     }
 }

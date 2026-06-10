@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Copy, Search, Star, Trash2 } from "lucide-react";
+import { Check, Copy, RefreshCw, Search, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { commands, type ClipboardEntry, type ClipboardUpdatePayload } from "@/bindings";
 import { formatDateTime } from "@/utils/dateFormat";
@@ -203,6 +203,20 @@ export const ClipboardSettings: React.FC = () => {
       setEntries([]);
     } catch (error) {
       console.error("Failed to clear all:", error);
+    }
+  };
+
+  const handleRefresh = async () => {
+    try {
+      const result = await commands.forceRefreshClipboard();
+      if (result.status === "ok") {
+        toast.success(result.data);
+      } else {
+        toast.error(String(result.error));
+      }
+    } catch (error) {
+      console.error("Failed to refresh clipboard:", error);
+      toast.error("Refresh failed — see logs");
     }
   };
 
@@ -466,6 +480,14 @@ export const ClipboardSettings: React.FC = () => {
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
               tracking
             </span>
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-logo-primary/10 text-logo-primary rounded-md hover:bg-logo-primary/20 transition-colors"
+              title="Force clipboard refresh — clears dedup state and re-reads clipboard"
+            >
+              <RefreshCw width={14} height={14} />
+              <span>Refresh</span>
+            </button>
             <button
               onClick={clearAll}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-mid-gray/20 text-text/70 rounded-md hover:bg-mid-gray/30 transition-colors"
