@@ -422,17 +422,24 @@ fn open_with_shell_execute(path: &str, parameters: Option<&str>) {
     let params_wide: Option<Vec<u16>> =
         parameters.map(|p| p.encode_utf16().chain(std::iter::once(0)).collect());
     let hinstance = unsafe {
-        ShellExecuteW(
-            None,
-            PCWSTR::from_raw(verb_wide.as_ptr()),
-            PCWSTR::from_raw(path_wide.as_ptr()),
-            params_wide
-                .as_ref()
-                .map(|w| PCWSTR::from_raw(w.as_ptr()))
-                .unwrap_or(None),
-            None,
-            SW_SHOWNORMAL,
-        )
+        match params_wide.as_ref() {
+            Some(w) => ShellExecuteW(
+                None,
+                PCWSTR::from_raw(verb_wide.as_ptr()),
+                PCWSTR::from_raw(path_wide.as_ptr()),
+                PCWSTR::from_raw(w.as_ptr()),
+                None,
+                SW_SHOWNORMAL,
+            ),
+            None => ShellExecuteW(
+                None,
+                PCWSTR::from_raw(verb_wide.as_ptr()),
+                PCWSTR::from_raw(path_wide.as_ptr()),
+                None,
+                None,
+                SW_SHOWNORMAL,
+            ),
+        }
     };
     let code = (hinstance.0 as *const core::ffi::c_void) as isize;
     if code <= 32 {
